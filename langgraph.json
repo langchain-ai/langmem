@@ -1,7 +1,8 @@
 {
   "dependencies": ["."],
   "graphs": {
-    "optimize_prompts": "./src/langmem/graphs/prompts.py:optimize_prompts"
+    "optimize_prompts": "./src/langmem/graphs/prompts.py:optimize_prompts",
+    "extract_memories": "./src/langmem/graphs/semantic.py:graph"
   },
   "env": ".env",
   "auth": {
