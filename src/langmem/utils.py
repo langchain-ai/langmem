@@ -40,6 +40,7 @@ def get_conversation(messages: list):
     merged = merge_message_runs(messages)
     return "\n\n".join(m.pretty_repr() for m in merged)
 
+
 # List[Tuple[List[AnyMessage], Dict[str, Any]]]
 
 
@@ -83,7 +84,7 @@ def format_sessions(
     return "\n\n".join(acc)
 
 
-def _get_var_healer(vars: set[str] | str, all_required: bool = False):
+def get_var_healer(vars: set[str] | str, all_required: bool = False):
     if isinstance(vars, str):
         vars = set(re.findall(r"\{(.+?)\}", vars, re.MULTILINE))
     var_to_uuid = {f"{{{v}}}": uuid.uuid4().hex for v in vars}
@@ -130,7 +131,7 @@ def _get_var_healer(vars: set[str] | str, all_required: bool = False):
     return pipe
 
 
-def _prompt_schema(
+def get_prompt_extraction_schema(
     original_prompt: str,
 ):
     required_variables = set(re.findall(r"\{(.+?)\}", original_prompt, re.MULTILINE))
@@ -146,7 +147,7 @@ def _prompt_schema(
             " Any brackets {{ foo }} you emit will be escaped and not used."
         )
 
-    pipeline = _get_var_healer(set(required_variables), all_required=True)
+    pipeline = get_var_healer(set(required_variables), all_required=True)
 
     class OptimizedPromptOutput(BaseModel):
         """Schema for the optimized prompt output."""

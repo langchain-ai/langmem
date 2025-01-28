@@ -6,7 +6,7 @@ from langmem.prompts.prompt import (
 )
 from langmem.prompts.utils import get_trajectory_clean
 from langsmith import traceable
-from langmem.utils import _get_var_healer
+from langmem.utils import get_var_healer
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -83,7 +83,7 @@ class PromptMemoryMultiple:
     @traceable
     def reflect(self, trajectories_with_feedback, prompt: "Prompt"):
         data = self._get_data(trajectories_with_feedback)
-        healer = _get_var_healer(prompt["prompt"])
+        healer = get_var_healer(prompt["prompt"])
         prompt = INSTRUCTION_REFLECTION_MULTIPLE_PROMPT.format(
             current_prompt=prompt["prompt"],
             data=data,
@@ -95,7 +95,7 @@ class PromptMemoryMultiple:
     @traceable
     async def areflect(self, trajectories_with_feedback, prompt: "Prompt"):
         data = self._get_data(trajectories_with_feedback)
-        healer = _get_var_healer(prompt["prompt"])
+        healer = get_var_healer(prompt["prompt"])
         prompt = INSTRUCTION_REFLECTION_MULTIPLE_PROMPT.format(
             current_prompt=prompt["prompt"],
             data=data,

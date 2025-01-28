@@ -3,5 +3,8 @@
   "graphs": {
     "optimize_prompts": "./src/langmem/graphs/prompts.py:optimize_prompts"
   },
-  "env": ".env"
+  "env": ".env",
+  "auth": {
+    "path": "./src/langmem/graphs/auth.py:auth"
+  }
 }
