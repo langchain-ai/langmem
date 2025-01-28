@@ -5,6 +5,8 @@ from langmem import utils
 from langmem.prompts import types
 from trustcall import create_extractor
 from typing_extensions import TypedDict
+from langchain_core.runnables import Runnable, RunnableConfig
+from typing import Optional, Any, Union
 
 DEFAULT_MAX_REFLECTION_STEPS = 5
 DEFAULT_MIN_REFLECTION_STEPS = 1
@@ -33,7 +35,7 @@ Analyze the following sessions (and any associated user feedback) (either conver
 {sessions}
 </sessions>
 
-## Feedback
+i## Feedback
 
 The following feedback is provided for this session:
 
@@ -68,7 +70,6 @@ First think through the conversation and critique the current behavior.
 If you believe the prompt needs to further adapt to the target context, provide precise recommendations.
 Otherwise, mark `warrants_adjustment` as False and respond with 'No recommendations.'"""
 
-
 DEFAULT_GRADIENT_METAPROMPT = """You are optimizing a prompt to handle its target task more effectively.
 
 <current_prompt>
@@ -99,144 +100,329 @@ class GradientOptimizerConfig(TypedDict, total=False):
     min_reflection_steps: int
 
 
-def create_gradient_prompt_optimizer(
-    model: str | BaseChatModel, config: GradientOptimizerConfig | None = None
-):
-    config = config or GradientOptimizerConfig()
-    config = GradientOptimizerConfig(
-        gradient_prompt=config.get("gradient_prompt", DEFAULT_GRADIENT_PROMPT),
-        metaprompt=config.get("metaprompt", DEFAULT_GRADIENT_METAPROMPT),
-        max_reflection_steps=config.get(
-            "max_reflection_steps", DEFAULT_MAX_REFLECTION_STEPS
-        ),
-        min_reflection_steps=config.get(
-            "min_reflection_steps", DEFAULT_MIN_REFLECTION_STEPS
-        ),
-    )
+# For uniformity, let's define the expected "input" structure:
+class GradientOptimizerInput(TypedDict, total=False):
+    """Input to the gradient optimizer."""
 
-    @ls.traceable
-    async def react_agent(
-        model: str | BaseChatModel, inputs: str, max_steps: int, min_steps: int
+    sessions: Union[list[Union[tuple[list[AnyMessage], dict[str, str]], str]], str]
+    prompt: Union[str, types.Prompt]
+
+
+class GradientPromptOptimizer(Runnable[GradientOptimizerInput, str]):
+    """
+    Class-based Gradient Prompt Optimizer with both sync and async entry points (invoke/ainvoke).
+    Mirrors the logic in create_gradient_prompt_optimizer, but avoids duplication
+    by splitting the reflection loop and final update into dedicated sync/async methods.
+    """
+
+    def __init__(
+        self,
+        model: Union[str, BaseChatModel],
+        config: Optional[GradientOptimizerConfig] = None,
     ):
-        messages = [
-            {"role": "user", "content": inputs},
-        ]
-        just_think = create_extractor(
+        self.model = model
+        config = config or {}
+        self._config = GradientOptimizerConfig(
+            gradient_prompt=config.get("gradient_prompt", DEFAULT_GRADIENT_PROMPT),
+            metaprompt=config.get("metaprompt", DEFAULT_GRADIENT_METAPROMPT),
+            max_reflection_steps=config.get(
+                "max_reflection_steps", DEFAULT_MAX_REFLECTION_STEPS
+            ),
+            min_reflection_steps=config.get(
+                "min_reflection_steps", DEFAULT_MIN_REFLECTION_STEPS
+            ),
+        )
+
+        def think(thought: str) -> str:
+            """A reflection tool, used to reason over complexities and hypothesize fixes."""
+            return "Take your time thinking through problems."
+
+        def critique(criticism: str) -> str:
+            """A critique tool for diagnosing flaws in reasoning."""
+            return "Reflect critically on the previous hypothesis."
+
+        def recommend(
+            warrants_adjustment: bool,
+            hypotheses: Optional[str] = None,
+            full_recommendations: Optional[str] = None,
+        ) -> str:
+            """
+            Decides whether a prompt should be adjusted.
+            If warrants_adjustment is True, we incorporate recommended changes.
+            If not, we respond 'No recommendations.'
+            """
+            return ""
+
+        self.just_think_chain = create_extractor(
             model,
             tools=[think, critique],
             tool_choice="any",
         )
-        any_chain = create_extractor(
+        self.any_chain = create_extractor(
             model,
             tools=[think, critique, recommend],
             tool_choice="any",
         )
-        final_chain = create_extractor(
+        self.final_chain = create_extractor(
             model,
             tools=[recommend],
             tool_choice="recommend",
         )
+
+    async def _areact_agent(self, inputs: str) -> Any:
+        """
+        Async version of the reflection loop.
+        Follows the logic of your old react_agent, but coded inline, returning the final "recommend" response object.
+        """
+        messages = [{"role": "user", "content": inputs}]
+        max_steps = self._config["max_reflection_steps"]
+        min_steps = self._config["min_reflection_steps"]
+
         for ix in range(max_steps):
+            # Choose chain:
             if ix == max_steps - 1:
-                chain = final_chain
+                chain = self.final_chain
             elif ix < min_steps:
-                chain = just_think
+                chain = self.just_think_chain
             else:
-                chain = any_chain
+                chain = self.any_chain
+
             response = await chain.ainvoke(messages)
+
+            # Look for a final "recommend" response in the chain output:
             final_response = next(
                 (r for r in response["responses"] if r.__repr_name__() == "recommend"),
                 None,
             )
             if final_response:
                 return final_response
+
+            # Otherwise keep looping:
             msg: AIMessage = response["messages"][-1]
             messages.append(msg)
-            ids = [tc["id"] for tc in (msg.tool_calls or [])]
-            for id_ in ids:
-                messages.append({"role": "tool", "content": "", "tool_call_id": id_})
+            # Insert special "tool" role messages if the AI message invoked tools:
+            for tc in msg.tool_calls or []:
+                messages.append(
+                    {"role": "tool", "content": "", "tool_call_id": tc["id"]}
+                )
 
-        raise ValueError(f"Failed to generate response after {max_steps} attempts")
+        raise ValueError(
+            f"Failed to generate a final recommendation after {max_steps} attempts"
+        )
 
-    def think(thought: str):
-        """First call this to reason over complicated domains, uncover hidden input/output patterns, theorize why previous hypotheses failed, and creatively conduct error analyses (e.g., deep diagnostics/recursively analyzing "why" something failed). List characteristics of the data generating process you failed to notice before. Hypothesize fixes, prioritize, critique, and repeat calling this tool until you are confident in your next solution."""
-        return "Take as much time as you need! If you're stuck, take a step back and try something new."
+    def _react_agent(self, inputs: str) -> Any:
+        """
+        Sync version of the reflection loop.
+        We do the same logic but calling chain.invoke() instead of chain.ainvoke().
+        """
+        messages = [{"role": "user", "content": inputs}]
+        max_steps = self._config["max_reflection_steps"]
+        min_steps = self._config["min_reflection_steps"]
 
-    def critique(criticism: str):
-        """Then, critique your thoughts and hypotheses. Identify flaws in your previous hypotheses and current thinking. Forecast why the hypotheses won't work. Get to the bottom of what is really driving the problem. This tool returns no new information but gives you more time to plan."""
-        return "Take as much time as you need. It's important to think through different strategies."
+        for ix in range(max_steps):
+            if ix == max_steps - 1:
+                chain = self.final_chain
+            elif ix < min_steps:
+                chain = self.just_think_chain
+            else:
+                chain = self.any_chain
 
-    def recommend(
-        warrants_adjustment: bool,
-        hypotheses: str | None = None,
-        full_recommendations: str | None = None,
-    ):
-        """Once you've finished thinking, decide whether the session indicates the prompt should be adjusted.
-        If so, hypothesize why the prompt is inadequate and provide a clear and specific recommendation for how to improve the prompt.
-        Specify the precise changes and edit strategy. Specify what things not to touch.
-        If not, respond with 'No recommendations.'"""
+            response = chain.invoke(messages)
 
-    @ls.traceable
-    async def update_prompt(
+            final_response = next(
+                (r for r in response["responses"] if r.__repr_name__() == "recommend"),
+                None,
+            )
+            if final_response:
+                return final_response
+
+            msg: AIMessage = response["messages"][-1]
+            messages.append(msg)
+            for tc in msg.tool_calls or []:
+                messages.append(
+                    {"role": "tool", "content": "", "tool_call_id": tc["id"]}
+                )
+
+        raise ValueError(
+            f"Failed to generate a final recommendation after {max_steps} attempts"
+        )
+
+    async def _aupdate_prompt(
+        self,
         hypotheses: str,
         recommendations: str,
         current_prompt: str,
         update_instructions: str,
-    ):
+    ) -> str:
+        """
+        Async version of the final update step.
+        Uses a specialized extractor with a schema tool to parse the improved prompt.
+        """
         schema = utils.get_prompt_extraction_schema(current_prompt)
-
         extractor = create_extractor(
-            model,
+            self.model,
             tools=[schema],
             tool_choice="OptimizedPromptOutput",
         )
-        result = await extractor.ainvoke(
-            config["metaprompt"].format(
-                current_prompt=current_prompt,
-                recommendations=recommendations,
-                hypotheses=hypotheses,
-                update_instructions=update_instructions,
-            )
-        )
-        return result["responses"][0].improved_prompt
-
-    @ls.traceable(metadata={"kind": "gradient"})
-    async def optimize_prompt(
-        sessions: list[tuple[list[AnyMessage], dict[str, str] | str]] | str,
-        prompt: str | types.Prompt,
-    ):
-        prompt_str = prompt if isinstance(prompt, str) else prompt.get("prompt", "")
-        if not sessions:
-            return prompt_str
-        elif isinstance(sessions, str):
-            sessions = sessions
-        else:
-            sessions = utils.format_sessions(sessions)
-
-        feedback = "" if isinstance(prompt, str) else prompt.get("feedback", "")
-        update_instructions = (
-            "" if isinstance(prompt, str) else prompt.get("update_instructions", "")
-        )
-
-        inputs = config["gradient_prompt"].format(
-            sessions=sessions,
-            feedback=feedback,
-            prompt=prompt_str,
+        prompt_input = self._config["metaprompt"].format(
+            current_prompt=current_prompt,
+            recommendations=recommendations,
+            hypotheses=hypotheses,
             update_instructions=update_instructions,
         )
-        result = await react_agent(
-            model,
-            inputs,
-            max_steps=config["max_reflection_steps"],
-            min_steps=config["min_reflection_steps"],
+        result = await extractor.ainvoke(prompt_input)
+        return result["responses"][0].improved_prompt
+
+    def _update_prompt(
+        self,
+        hypotheses: str,
+        recommendations: str,
+        current_prompt: str,
+        update_instructions: str,
+    ) -> str:
+        """Sync version of the final update step."""
+        schema = utils.get_prompt_extraction_schema(current_prompt)
+        extractor = create_extractor(
+            self.model,
+            tools=[schema],
+            tool_choice="OptimizedPromptOutput",
         )
-        if result.warrants_adjustment:
-            return await update_prompt(
-                result.hypotheses,
-                result.full_recommendations,
+        prompt_input = self._config["metaprompt"].format(
+            current_prompt=current_prompt,
+            recommendations=recommendations,
+            hypotheses=hypotheses,
+            update_instructions=update_instructions,
+        )
+        result = extractor.invoke(prompt_input)
+        return result["responses"][0].improved_prompt
+
+    def _process_input(
+        self, input: GradientOptimizerInput
+    ) -> tuple[str, str, str, str]:
+        """
+        Extract prompt_str, sessions_str, feedback, update_instructions from input.
+        """
+        prompt_data = input["prompt"]
+        sessions_data = input["sessions"]
+
+        if isinstance(prompt_data, str):
+            prompt_str = prompt_data
+            feedback = ""
+            update_instructions = ""
+        else:
+            prompt_str = prompt_data.get("prompt", "")
+            feedback = prompt_data.get("feedback", "")
+            update_instructions = prompt_data.get("update_instructions", "")
+
+        if isinstance(sessions_data, str):
+            sessions_str = sessions_data
+        else:
+            sessions_str = utils.format_sessions(sessions_data) if sessions_data else ""
+
+        return prompt_str, sessions_str, feedback, update_instructions
+
+    #
+    # The public async & sync methods (ainvoke/invoke) + optional __call__
+    #
+    async def ainvoke(
+        self,
+        input: GradientOptimizerInput,
+        config: Optional[RunnableConfig] = None,
+        **kwargs: Any,
+    ) -> str:
+        """
+        The async entry point. This is analogous to your old `optimize_prompt`.
+        1) Process input
+        2) Run reflection steps (async)
+        3) If not warrants_adjustment -> return original prompt
+           else run final update (async)
+        """
+        with ls.trace(
+            name="gradient_optimizer", inputs=input, metadata={"kind": "gradient"}
+        ):
+            prompt_str, sessions_str, feedback, update_instructions = (
+                self._process_input(input)
+            )
+            if not sessions_str:
+                return prompt_str  # no sessions => no change
+
+            # Format the initial question to the reflection chain:
+            reflection_input = self._config["gradient_prompt"].format(
+                sessions=sessions_str,
+                feedback=feedback,
+                prompt=prompt_str,
+                update_instructions=update_instructions,
+            )
+
+            # 1) reflection steps:
+            final_response = await self._areact_agent(reflection_input)
+            if not final_response.warrants_adjustment:
+                return prompt_str
+
+            # 2) final update if warranted:
+            improved_prompt = await self._aupdate_prompt(
+                final_response.hypotheses,
+                final_response.full_recommendations,
                 prompt_str,
                 update_instructions,
             )
-        return prompt_str
+            return improved_prompt
 
-    return optimize_prompt
+    def invoke(
+        self,
+        input: GradientOptimizerInput,
+        config: Optional[RunnableConfig] = None,
+        **kwargs: Any,
+    ) -> str:
+        """
+        The sync entry point: same logic as ainvoke, but calls sync reflection & update.
+        """
+        with ls.trace(
+            name="gradient_optimizer", inputs=input, metadata={"kind": "gradient"}
+        ):
+            prompt_str, sessions_str, feedback, update_instructions = (
+                self._process_input(input)
+            )
+            if not sessions_str:
+                return prompt_str
+
+            reflection_input = self._config["gradient_prompt"].format(
+                sessions=sessions_str,
+                feedback=feedback,
+                prompt=prompt_str,
+                update_instructions=update_instructions,
+            )
+
+            # reflection steps (sync):
+            final_response = self._react_agent(reflection_input)
+            if not final_response.warrants_adjustment:
+                return prompt_str
+
+            # final update (sync):
+            improved_prompt = self._update_prompt(
+                final_response.hypotheses,
+                final_response.full_recommendations,
+                prompt_str,
+                update_instructions,
+            )
+            return improved_prompt
+
+    async def __call__(
+        self,
+        sessions: Union[list[Union[tuple[list[AnyMessage], dict[str, str]], str]], str],
+        prompt: Union[str, types.Prompt],
+    ) -> str:
+        """
+        Allow the object to be called like: await gradient_optimizer(sessions, prompt).
+        This simply defers to `ainvoke` with the required structure.
+        """
+        return await self.ainvoke({"sessions": sessions, "prompt": prompt})
+
+
+def create_gradient_prompt_optimizer(
+    model: Union[str, BaseChatModel], config: Optional[GradientOptimizerConfig] = None
+) -> GradientPromptOptimizer:
+    """
+    Original factory function that just returns the new class-based optimizer.
+    """
+    return GradientPromptOptimizer(model, config)
