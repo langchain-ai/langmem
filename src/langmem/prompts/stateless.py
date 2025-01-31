@@ -144,7 +144,7 @@ class MultipleMemoryInput(TypedDict, total=False):
     """
 
     trajectories_with_feedback: Union[str, List[Tuple[Any, str]]]
-    prompt: dict
+    prompt: Union[dict, str]
 
 
 class PromptMemoryMultiple(Runnable[MultipleMemoryInput, str]):
@@ -194,14 +194,19 @@ class PromptMemoryMultiple(Runnable[MultipleMemoryInput, str]):
         with ls.trace(name="prompt_memory_multiple_reflect", inputs=input):
             trajectories_with_feedback = input["trajectories_with_feedback"]
             prompt_data = input["prompt"]  # same shape as old 'Prompt'
+            prompt_str = (
+                prompt_data["prompt"] if isinstance(prompt_data, dict) else prompt_data
+            )
 
             data_str = self._get_data(trajectories_with_feedback)
-            healer = get_var_healer(prompt_data["prompt"])
+            healer = get_var_healer(prompt_str)
 
             prompt_str = INSTRUCTION_REFLECTION_MULTIPLE_PROMPT.format(
-                current_prompt=prompt_data["prompt"],
+                current_prompt=prompt_str,
                 data=data_str,
-                instructions=prompt_data.get("update_instructions", ""),
+                instructions=prompt_data.get("update_instructions", "")
+                if isinstance(prompt_data, dict)
+                else "",
             )
 
             _output = self.model.invoke(prompt_str)
@@ -220,17 +225,21 @@ class PromptMemoryMultiple(Runnable[MultipleMemoryInput, str]):
         """
         async with ls.trace(name="prompt_memory_multiple_reflect", inputs=input):
             trajectories_with_feedback = input["trajectories_with_feedback"]
-            prompt_data = input["prompt"]
-
-            data_str = self._get_data(trajectories_with_feedback)
-            healer = get_var_healer(prompt_data["prompt"])
-
-            prompt_str = INSTRUCTION_REFLECTION_MULTIPLE_PROMPT.format(
-                current_prompt=prompt_data["prompt"],
-                data=data_str,
-                instructions=prompt_data.get("update_instructions", ""),
+            prompt_data = input["prompt"]  # same shape as old 'Prompt'
+            prompt_str = (
+                prompt_data["prompt"] if isinstance(prompt_data, dict) else prompt_data
             )
 
+            data_str = self._get_data(trajectories_with_feedback)
+            healer = get_var_healer(prompt_str)
+
+            prompt_str = INSTRUCTION_REFLECTION_MULTIPLE_PROMPT.format(
+                current_prompt=prompt_str,
+                data=data_str,
+                instructions=prompt_data.get("update_instructions", "")
+                if isinstance(prompt_data, dict)
+                else "",
+            )
             _output = await self.model.ainvoke(prompt_str)
             return healer(_output["new_prompt"])
 

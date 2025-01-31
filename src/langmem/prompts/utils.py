@@ -1,14 +1,42 @@
 import re
 import typing
 
-from langmem import utils
+from langchain_core.messages import BaseMessage
 from pydantic import BaseModel, Field, model_validator
+
+from langmem import utils
+
+
+def _get_msg_title_repr(title: str) -> str:
+    """Get a title representation for a message.
+
+    Args:
+        title: The title.
+        bold: Whether to bold the title. Default is False.
+
+    Returns:
+        The title representation.
+    """
+    padded = " " + title + " "
+    sep_len = (80 - len(padded)) // 2
+    sep = "=" * sep_len
+    second_sep = sep + "=" if len(padded) % 2 else sep
+    return f"{sep}{padded}{second_sep}"
 
 
 def get_trajectory_clean(messages):
     response = []
     for m in messages:
-        response.append(m.pretty_repr())
+        if isinstance(m, BaseMessage):
+            response.append(m.pretty_repr())
+        elif isinstance(m, dict) and "role" in m and "content" in m:
+            title = _get_msg_title_repr(m["role"])
+            name = m.get("name")
+            # TODO: handle non-string content.
+            if name is not None:
+                title += f"\nName: {name}"
+            response.append(title + "\n\n" + m["content"])
+
     return "\n".join(response)
 
 

@@ -1,20 +1,42 @@
+"""Knowledge extraction and semantic memory management.
+
+This module provides utilities for extracting and managing semantic knowledge from conversations:
+
+1. Functional Transformations:
+    - `create_memory_enricher(model, schemas=None) -> ((messages, existing=None) -> list[tuple[str, Memory]])`:
+        Extract structured information from conversations
+    - `create_thread_extractor(model, schema=None) -> ((messages) -> Summary)`:
+        Generate structured summaries from conversations
+
+2. Stateful Operations:
+    Components that persist and manage memories in LangGraph's BaseStore:
+    - `create_memory_store_enricher(model, store=None) -> ((messages) -> None)`:
+        Apply enrichment with integrated storage
+    - `create_manage_memory_tool(store=None) -> Tool[dict, str]`:
+        Tool for creating/updating stored memories
+    - `create_search_memory_tool(store=None) -> Tool[dict, list[Memory]]`:
+        Tool for searching stored memories
+
+"""
+
 import asyncio
 import typing
 import uuid
 
+import langsmith as ls
 from langchain.chat_models import init_chat_model
 from langchain_core.language_models import BaseChatModel
-from typing_extensions import TypedDict
 from langchain_core.messages import AnyMessage
 from langchain_core.prompts import ChatPromptTemplate
-from langgraph.store.base import SearchItem
 from langgraph.prebuilt import ToolNode
+from langgraph.store.base import SearchItem
 from langgraph.utils.config import get_store
 from pydantic import BaseModel, Field
 from trustcall import create_extractor
+from typing_extensions import TypedDict
+
 from langmem import utils
-from langmem.knowledge.tools import create_search_memory_tool, create_manage_memory_tool
-import langsmith as ls
+from langmem.knowledge.tools import create_manage_memory_tool, create_search_memory_tool
 
 ## LangGraph Tools
 
@@ -38,20 +60,30 @@ def create_thread_extractor(
             Defaults to a basic summarization instruction.
 
     Returns:
-        Callable: Async callable that takes a list of messages and returns a structured summary
+        extractor (Callable[[list], typing.Awaitable[typing.Any]]): Async callable that takes a list of messages and returns a structured summary
 
-    Example:
-        >>> summarizer = create_thread_extractor("gpt-4")
-        >>> messages = [
-        ...     HumanMessage(content="Hi, I'm having trouble with my account"),
-        ...     AIMessage(content="I'd be happy to help. What seems to be the issue?"),
-        ...     HumanMessage(content="I can't reset my password")
-        ... ]
-        >>> summary = await summarizer(messages)
-        >>> print(summary.title)
-        "Password Reset Assistance"
-        >>> print(summary.summary)
-        "User reported issues with password reset process..."
+    !!! example "Examples"
+        ```python
+        from langmem import create_thread_extractor
+
+        summarizer = create_thread_extractor("gpt-4")
+
+        messages = [
+            {"role": "user", "content": "Hi, I'm having trouble with my account"},
+            {
+                "role": "assistant",
+                "content": "I'd be happy to help. What seems to be the issue?",
+            },
+            {"role": "user", "content": "I can't reset my password"},
+        ]
+
+        summary = await summarizer(messages)
+        print(summary.title)
+        # Output: "Password Reset Assistance"
+        print(summary.summary)
+        # Output: "User reported issues with password reset process..."
+        ```
+
     """
 
     class SummarizeThread(BaseModel):
@@ -134,44 +166,109 @@ def create_memory_enricher(  # type: ignore
     """Create a memory enricher that processes conversation messages and generates structured memory entries.
 
     This function creates an async callable that analyzes conversation messages and existing memories
-    to generate or update structured memory entries based on the provided schemas.
+    to generate or update structured memory entries. It can identify implicit preferences,
+    important context, and key information from conversations, organizing them into
+    well-structured memories that can be used to improve future interactions.
+
+    The enricher supports both unstructured string-based memories and structured memories
+    defined by Pydantic models, all automatically persisted to the configured storage.
+
+    !!! example "Examples"
+        Basic unstructured memory enrichment:
+        ```python
+        from langmem import create_memory_enricher
+
+        enricher = create_memory_enricher("anthropic:claude-3-5-sonnet-latest")
+
+        conversation = [
+            {"role": "user", "content": "I prefer dark mode in all my apps"},
+            {"role": "assistant", "content": "I'll remember that preference"},
+        ]
+
+        # Extract memories from conversation
+        memories = await enricher(conversation)
+        print(memories[0][1])  # First memory's content
+        # Output: "User prefers dark mode for all applications"
+        ```
+
+        Structured memory enrichment with Pydantic models:
+        ```python
+        from pydantic import BaseModel
+        from langmem import create_memory_enricher
+
+        class PreferenceMemory(BaseModel):
+            \"\"\"Store the user's preference\"\"\"
+            category: str
+            preference: str
+            context: str
+
+        enricher = create_memory_enricher(
+            "anthropic:claude-3-5-sonnet-latest",
+            schemas=[PreferenceMemory]
+        )
+
+        # Same conversation, but with structured output
+        conversation = [
+            {"role": "user", "content": "I prefer dark mode in all my apps"},
+            {"role": "assistant", "content": "I'll remember that preference"}
+        ]
+        memories = await enricher(conversation)
+        print(memories[0][1])
+        # Output:
+        # PreferenceMemory(
+        #     category="ui",
+        #     preference="dark_mode",
+        #     context="User explicitly stated preference for dark mode in all applications"
+        # )
+        ```
+
+        Working with existing memories:
+        ```python
+        conversation = [
+            {
+                "role": "user",
+                "content": "Actually I changed my mind, dark mode hurts my eyes",
+            },
+            {"role": "assistant", "content": "I'll update your preference"},
+        ]
+
+        # The enricher will upsert; working with the existing memory instead of always creating a new one
+        updated_memories = await enricher(conversation, memories)
+        ```
+
+    !!! warning
+        When using structured memories with Pydantic models, ensure all models are properly
+        defined before creating the enricher. Models cannot be modified after the enricher
+        is created.
+
+    !!! tip
+        For better memory organization:
+        1. Use specific, well-defined Pydantic models for different types of memories
+        2. Keep memory content concise and focused
+        3. Include relevant context in structured memories
+        4. Use enable_deletes=True if you want to automatically remove outdated memories
 
     Args:
         model (Union[str, BaseChatModel]): The language model to use for memory enrichment.
             Can be a model name string or a BaseChatModel instance.
-        schemas (list): List of Pydantic models defining the structure of memory entries.
-        instructions (str, optional): Custom instructions for memory generation.
-            Defaults to predefined memory instructions.
+        schemas (Optional[list]): List of Pydantic models defining the structure of memory
+            entries. Each model should define the fields and validation rules for a type
+            of memory. If None, uses unstructured string-based memories. Defaults to None.
+        instructions (str, optional): Custom instructions for memory generation and
+            organization. These guide how the model extracts and structures information
+            from conversations. Defaults to predefined memory instructions.
         enable_inserts (bool, optional): Whether to allow creating new memory entries.
-            Defaults to True.
-        enable_deletes (bool, optional): Whether to allow deleting existing memories.
-            Defaults to False.
+            When False, the enricher will only update existing memories. Defaults to True.
+        enable_deletes (bool, optional): Whether to allow deleting existing memories
+            that are outdated or contradicted by new information. Defaults to False.
 
     Returns:
-        Callable: An async function that takes conversation messages and optional existing
-            memories, returning a tuple of (memory_id, memory_entry).
+        enricher (Callable[[list], typing.Awaitable[typing.Any]]): An async function that processes conversations and returns memory entries. The function signature depends on whether schemas are provided:
 
-    Example:
-        >>> from pydantic import BaseModel
-        >>>
-        >>> class UserPreference(BaseModel):
-        ...     theme: str
-        ...     language: str
-        >>>
-        >>> enricher = create_memory_enricher(
-        ...     "anthropic:claude-3-sonnet-20240229",
-        ...     schemas=[UserPreference],
-        ...     enable_inserts=True
-        ... )
-        >>>
-        >>> messages = [
-        ...     ("human", "I prefer dark mode and English language"),
-        ...     ("ai", "I'll remember your preferences")
-        ... ]
-        >>> memory_id, entry = await enricher(messages)
-        >>> print(entry.theme, entry.language)
-        'dark' 'English'
+            - With schemas: (messages: list[Message], existing: Optional[list]) -> list[tuple[str, BaseModel]]
+            - Without schemas: (messages: list[Message], existing: Optional[list[str]]) -> list[tuple[str, str]]
     """
+
     model = model if isinstance(model, BaseChatModel) else init_chat_model(model)
     str_type = False
     if schemas is None:
@@ -274,15 +371,38 @@ def create_memory_searcher(
             Defaults to ("memories", "{user_id}").
 
     Returns:
-        Callable: A pipeline that takes conversation messages and returns sorted memory artifacts,
+        searcher (Callable[[list], typing.Awaitable[typing.Any]]): A pipeline that takes conversation messages and returns sorted memory artifacts,
             ranked by relevance score.
 
-    Example:
-        >>> searcher = create_memory_searcher("gpt-3.5-turbo")
-        >>> messages = [HumanMessage(content="What do I like to eat?")]
-        >>> results = await searcher.ainvoke({"messages": messages})
-        >>> print(results[0].value["content"])
-        "User enjoys sushi and Italian cuisine"
+    !!! example "Examples"
+        ```python
+        from langmem import create_memory_searcher
+        from langgraph.store.memory import InMemoryStore
+        from langgraph.func import entrypoint
+
+        store = InMemoryStore()
+        user_id = "abcd1234"
+        store.put(
+            ("memories", user_id), key="preferences", value={"content": "I like sushi"}
+        )
+        searcher = create_memory_searcher(
+            "openai:gpt-4o-mini", namespace_prefix=("memories", "{user_id}")
+        )
+
+
+        @entrypoint(store=store)
+        async def search_memories(messages: list):
+            results = await searcher.ainvoke({"messages": messages})
+            print(results[0].value["content"])
+            # Output: "I like sushi"
+
+
+        await search_memories.ainvoke(
+            [{"role": "user", "content": "What do I like to eat?"}],
+            config={"configurable": {"user_id": user_id}},
+        )
+        ```
+
     """
     template = ChatPromptTemplate.from_messages(
         [
@@ -332,14 +452,15 @@ class MemoryPhase(TypedDict, total=False):
 
 def create_memory_store_enricher(
     model: str | BaseChatModel,
+    /,
     *,
     schemas: list | None = None,
     instructions: str = _MEMORY_INSTRUCTIONS,
     enable_inserts: bool = True,
     enable_deletes: bool = True,
     query_model: str | BaseChatModel | None = None,
+    query_limit: int = 5,
     namespace_prefix: tuple[str, ...] = ("memories", "{user_id}"),
-    query_limit: int = 50,
     phases: list[MemoryPhase] | None = None,
 ):
     """End-to-end memory management system with automatic storage integration.
@@ -347,42 +468,165 @@ def create_memory_store_enricher(
     This function creates a comprehensive memory management system that combines:
     1. Automatic memory search based on conversation context
     2. Memory extraction and enrichment
-    3. Persistent storage operations
+    3. Persistent storage operations with versioning
 
-    The system can automatically update existing memories when new information
-    contradicts or supplements them, and optionally remove outdated information.
+    The system automatically searches for relevant memories, extracts new information,
+    updates existing memories, and maintains a versioned history of all changes.
+
+    !!! example "Examples"
+        Basic memory storage and retrieval:
+        ```python
+        from langmem import create_memory_store_enricher
+        from langgraph.store.memory import InMemoryStore
+        from langgraph.func import entrypoint
+
+        store = InMemoryStore()
+        enricher = create_memory_store_enricher("anthropic:claude-3-5-sonnet-latest")
+
+
+        @entrypoint(store=store)
+        async def manage_preferences(messages: list):
+            # First conversation - storing a preference
+            await enricher({"messages": messages})
+
+
+        # Store a new preference
+        await manage_preferences.ainvoke(
+            [
+                {"role": "user", "content": "I prefer dark mode in all my apps"},
+                {"role": "assistant", "content": "I'll remember that preference"},
+            ],
+            config={"configurable": {"user_id": "user123"}},
+        )
+
+        # Later conversation - automatically retrieves and uses the stored preference
+        await manage_preferences.ainvoke(
+            [
+                {"role": "user", "content": "What theme do I prefer?"},
+                {
+                    "role": "assistant",
+                    "content": "You prefer dark mode for all applications",
+                },
+            ],
+            config={"configurable": {"user_id": "user123"}},
+        )
+        ```
+
+        Structured memory management with custom schemas:
+        ```python
+        from pydantic import BaseModel
+        from langmem import create_memory_store_enricher
+        from langgraph.store.memory import InMemoryStore
+        from langgraph.func import entrypoint
+
+
+        class PreferenceMemory(BaseModel):
+            \"\"\"Store user preferences.\"\"\"
+            category: str
+            preference: str
+            context: str
+
+
+        store = InMemoryStore()
+        enricher = create_memory_store_enricher(
+            "anthropic:claude-3-5-sonnet-latest",
+            schemas=[PreferenceMemory],
+            namespace_prefix=("project", "team_1", "{user_id}"),
+        )
+
+        @entrypoint(store=store)
+        async def manage_preferences(messages: list):
+            await enricher({"messages": messages})
+
+        # Store structured memory
+        await manage_preferences.ainvoke(
+            [
+                {"role": "user", "content": "I prefer dark mode in all my apps"},
+                {"role": "assistant", "content": "I'll remember that preference"},
+            ],
+            config={"configurable": {"user_id": "user123"}},
+        )
+
+        # Memory is automatically stored and can be retrieved in future conversations
+        # The system will also automatically update it if preferences change
+        ```
+
+        Using a separate model for search queries:
+        ```python
+        from langmem import create_memory_store_enricher
+        from langgraph.store.memory import InMemoryStore
+        from langgraph.func import entrypoint
+
+        store = InMemoryStore()
+        enricher = create_memory_store_enricher(
+            "anthropic:claude-3-5-sonnet-latest",  # Main model for memory processing
+            query_model="anthropic:claude-3-5-haiku-latest",  # Faster model for search
+            query_limit=10,  # Retrieve more relevant memories
+        )
+
+
+        @entrypoint(store=store)
+        async def manage_memories(messages: list):
+            # The system will use the faster model to search for relevant memories
+            # and the more capable model to process and update them
+            await enricher({"messages": messages})
+
+
+        await manage_memories.ainvoke(
+            [
+                {"role": "user", "content": "What are my preferences?"},
+                {
+                    "role": "assistant",
+                    "content": "Let me check your stored preferences...",
+                },
+            ],
+            config={"configurable": {"user_id": "user123"}},
+        )
+        ```
+    !!! warning
+        Memory operations are performed automatically and may modify existing memories.
+        If you need to prevent automatic updates, set enable_inserts=False and
+        enable_deletes=False.
+
+    !!! tip
+        For optimal performance:
+        1. Use a smaller, faster model for query_model to improve search speed
+        2. Adjust query_limit based on your needs - higher values provide more
+           context but may slow down processing
+        3. Structure your namespace_prefix to organize memories logically,
+           e.g., ("project", "team", "{user_id}")
+        4. Consider using enable_deletes=False if you want to maintain
+           a history of all memory changes
 
     Args:
-        model (Union[str, BaseChatModel]): The primary language model to use for memory enrichment.
-            Can be a model name string or a BaseChatModel instance.
-        schemas (list, optional): List of Pydantic models defining the structure of memory entries.
-            Defaults to None, which uses string-based memories.
-        instructions (str, optional): Custom instructions for memory generation.
-            Defaults to predefined memory instructions.
+        model (Union[str, BaseChatModel]): The primary language model to use for memory
+            enrichment. Can be a model name string or a BaseChatModel instance.
+        schemas (Optional[list]): List of Pydantic models defining the structure of memory
+            entries. Each model should define the fields and validation rules for a type
+            of memory. If None, uses unstructured string-based memories. Defaults to None.
+        instructions (str, optional): Custom instructions for memory generation and
+            organization. These guide how the model extracts and structures information
+            from conversations. Defaults to predefined memory instructions.
         enable_inserts (bool, optional): Whether to allow creating new memory entries.
-            Defaults to True.
-        enable_deletes (bool, optional): Whether to allow deleting existing memories.
-            Defaults to True.
-        query_model (Union[str, BaseChatModel], optional): Optional separate model for search queries.
-            Defaults to None, which uses the primary model.
-        namespace_prefix (tuple[str, ...], optional): Storage namespace structure for organizing memories.
-            Defaults to ("memories", "{user_id}").
-        query_limit (int, optional): Maximum number of search results to retrieve.
-            Defaults to 50.
-        phases (list[MemoryPhase], optional): List of additional memory enrichment phases.
-            Defaults to None.
+            When False, the enricher will only update existing memories. Defaults to True.
+        enable_deletes (bool, optional): Whether to allow deleting existing memories
+            that are outdated or contradicted by new information. Defaults to True.
+        query_model (Optional[Union[str, BaseChatModel]], optional): Optional separate
+            model for memory search queries. Using a smaller, faster model here can
+            improve performance. If None, uses the primary model. Defaults to None.
+        query_limit (int, optional): Maximum number of relevant memories to retrieve
+            for each conversation. Higher limits provide more context but may slow
+            down processing. Defaults to 5.
+        namespace_prefix (tuple[str, ...], optional): Storage namespace structure for
+            organizing memories. Supports templated values like "{user_id}" which are
+            populated from the runtime context. Defaults to ("memories", "{user_id}").
 
     Returns:
-        Callable: An async function that manages the full memory lifecycle from conversation input to storage.
+        enricher (Callable): An async function that processes conversations and automatically manages memories in the configured storage. The function works by:
 
-    Example:
-        >>> memory_manager = create_memory_store_enricher("gpt-4")
-        >>> messages = [
-        ...     HumanMessage(content="I've moved to Paris from New York"),
-        ...     AIMessage(content="Got it, updating your location information")
-        ... ]
-        >>> await memory_manager(messages)  # Updates location memory
-        >>> # If enable_deletes=True, also removes outdated New York location
+            - Memory search and retrieval
+            - Memory creation and updates
+            - Storage operations and versioning
     """
     model = model if isinstance(model, BaseChatModel) else init_chat_model(model)
     query_model = (
@@ -416,7 +660,7 @@ def create_memory_store_enricher(
         )
 
     def apply_enricher_output(
-        enricher_output: list[tuple[str, BaseModel]],
+        enricher_output: list[tuple[str, BaseModel] | tuple[str, dict]],
         store_based: list[tuple[str, str, dict]],
         store_map: dict[str, SearchItem],
         ephemeral: list[tuple[str, str, dict]],
@@ -431,27 +675,37 @@ def create_memory_store_enricher(
         removed_ids = []
 
         for stable_id, model_data in enricher_output:
-            if hasattr(model_data, "__repr_name__") and model_data.__repr_name__() == "RemoveDoc":
-                removal_id = model_data.json_doc_id
-                if removal_id and removal_id in store_map:
-                    print(
-                        f"Popping permanent memory {removal_id}",
-                        removal_id in store_dict,
-                        flush=True,
-                    )
-                    removed_ids.append(removal_id)
-                else:
-                    print(
-                        f"Popping ephemeral memory {removal_id}",
-                        removal_id in ephemeral,
-                        flush=True,
-                    )
-                store_dict.pop(removal_id, None)
-                ephemeral_dict.pop(removal_id, None)
-                continue
-            
-            new_content = model_data.model_dump(mode="json")  # Could maybe just keep
-            new_kind = model_data.__repr_name__()
+            if isinstance(model_data, BaseModel):
+                if (
+                    hasattr(model_data, "__repr_name__")
+                    and model_data.__repr_name__() == "RemoveDoc"
+                ):
+                    removal_id = model_data.json_doc_id
+                    if removal_id and removal_id in store_map:
+                        print(
+                            f"Popping permanent memory {removal_id}",
+                            removal_id in store_dict,
+                            flush=True,
+                        )
+                        removed_ids.append(removal_id)
+                    else:
+                        print(
+                            f"Popping ephemeral memory {removal_id}",
+                            removal_id in ephemeral,
+                            flush=True,
+                        )
+                    store_dict.pop(removal_id, None)
+                    ephemeral_dict.pop(removal_id, None)
+                    continue
+
+                new_content = model_data.model_dump(
+                    mode="json"
+                )  # Could maybe just keep
+                new_kind = model_data.__repr_name__()
+            else:
+                new_kind = store_dict.get(stable_id, (None, "", None))[1]
+                new_content = model_data
+
             if not new_kind:
                 new_kind = "Memory"
 

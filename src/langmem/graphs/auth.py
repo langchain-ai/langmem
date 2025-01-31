@@ -1,9 +1,9 @@
-from langgraph_sdk import Auth
 import logging
-from typing import NotRequired, TypedDict
-
+from typing import NotRequired
 
 from langgraph_api.auth.langsmith.client import auth_client
+from langgraph_sdk import Auth
+from typing_extensions import TypedDict
 
 logger = logging.getLogger(__name__)
 

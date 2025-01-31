@@ -1,12 +1,14 @@
+from typing import Any, Optional, Union
+
 import langsmith as ls
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, AnyMessage
-from langmem import utils
-from langmem.prompts import types
+from langchain_core.runnables import Runnable, RunnableConfig
 from trustcall import create_extractor
 from typing_extensions import TypedDict
-from langchain_core.runnables import Runnable, RunnableConfig
-from typing import Optional, Any, Union
+
+from langmem import utils
+from langmem.prompts import types
 
 DEFAULT_MAX_REFLECTION_STEPS = 5
 DEFAULT_MIN_REFLECTION_STEPS = 1

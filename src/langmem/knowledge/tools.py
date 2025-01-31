@@ -3,17 +3,14 @@ import uuid
 
 from langchain_core.tools import tool
 from langgraph.utils.config import get_store
+
 from langmem import utils
 
 ## LangGraph Tools
 
 
 def create_manage_memory_tool(
-    instructions: str = """Proactively call this tool when you:
-1. Identify a new USER preference.
-2. Receive an explicit USER request to remember something or otherwise alter your behavior.
-3. Are working and want to record important context.
-4. Identify that an existing MEMORY is incorrect or outdated.""",
+    instructions: str = "",
     namespace_prefix: tuple[str, ...] | utils.NamespaceTemplate = (
         "memories",
         "{user_id}",
@@ -26,6 +23,57 @@ def create_manage_memory_tool(
     persistent memories that carry over between conversations. The tool helps maintain
     context and user preferences across sessions.
 
+    Tip:
+        This tool connects with the LangGraph BaseStore configured in your graph or entrypoint.
+        It will not work if you do not provide a store.
+
+    !!! example "Examples"
+        ```python
+        from langgraph.func import entrypoint
+        from langgraph.store.memory import InMemoryStore
+
+        memory_tool = create_manage_memory_tool(
+            # All memories saved to this tool will live within this namespace
+            # The brackets will be populated at runtime by the configurable values
+            namespace_prefix=("project_memories", "{langgraph_user_id}"),
+        )
+
+        store = InMemoryStore()
+
+
+        @entrypoint(store=store)
+        async def workflow(state: dict, *, previous=None):
+            # Other work....
+            result = await memory_tool.ainvoke(state)
+            print(result)
+            return entrypoint.final(value=result, save={})
+
+
+        config = {
+            "configurable": {
+                "langgraph_user_id": "123e4567-e89b-12d3-a456-426614174000"
+            }
+        }
+        # Create a new memory
+        await workflow.ainvoke(
+            {"content": "Team prefers to use Python for backend development"},
+            config=config,
+        )
+        # Output: 'created memory 123e4567-e89b-12d3-a456-426614174000'
+
+        # Update an existing memory
+        result = await workflow.ainvoke(
+            {
+                "id": "123e4567-e89b-12d3-a456-426614174000",
+                "content": "Team uses Python for backend and TypeScript for frontend",
+                "action": "update",
+            },
+            config=config,
+        )
+        print(result)
+        # Output: 'updated memory 123e4567-e89b-12d3-a456-426614174000'
+        ```
+
     Args:
         instructions (str, optional): Custom instructions for when to use the memory tool.
             Defaults to a predefined set of guidelines for proactive memory management.
@@ -35,31 +83,15 @@ def create_manage_memory_tool(
             memories per conversation. Defaults to "multi".
 
     Returns:
-        Callable: A decorated async function that can be used as a tool for memory management.
+        memory_tool (Tool): A decorated async function that can be used as a tool for memory management.
             The tool supports creating, updating, and deleting memories with proper validation.
-
-    Example:
-        >>> memory_tool = create_manage_memory_tool(
-        ...     namespace_prefix=("project_memories", "{team_id}")
-        ... )
-        >>> 
-        >>> # Create a new memory
-        >>> result = await memory_tool(
-        ...     action="create",
-        ...     content="Team prefers to use Python for backend development"
-        ... )
-        >>> print(result)
-        'created memory 123e4567-e89b-12d3-a456-426614174000'
-        >>> 
-        >>> # Update an existing memory
-        >>> result = await memory_tool(
-        ...     action="update",
-        ...     id=uuid.UUID('123e4567-e89b-12d3-a456-426614174000'),
-        ...     content="Team uses Python for backend and TypeScript for frontend"
-        ... )
-        >>> print(result)
-        'updated memory 123e4567-e89b-12d3-a456-426614174000'
     """
+    if not instructions:
+        instructions = """Proactively call this tool when you:
+1. Identify a new USER preference.
+2. Receive an explicit USER request to remember something or otherwise alter your behavior.
+3. Are working and want to record important context.
+4. Identify that an existing MEMORY is incorrect or outdated."""
     namespacer = (
         utils.NamespaceTemplate(namespace_prefix)
         if isinstance(namespace_prefix, tuple)
@@ -68,8 +100,8 @@ def create_manage_memory_tool(
 
     @tool
     async def manage_memory(
-        action: typing.Literal["create", "update", "delete"],
         content: typing.Optional[str] = None,
+        action: typing.Literal["create", "update", "delete"] = "create",
         *,
         id: typing.Optional[uuid.UUID] = None,
     ):

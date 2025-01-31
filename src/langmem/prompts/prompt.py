@@ -1,4 +1,4 @@
-from typing import TypedDict
+from typing_extensions import TypedDict
 
 INSTRUCTION_REFLECTION_PROMPT = """You are helping an AI agent improve. You can do this by changing their system prompt.
 

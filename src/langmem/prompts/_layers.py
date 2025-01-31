@@ -1,23 +1,25 @@
-import re
-from langchain_core.runnables import Runnable
-import typing
-from typing import Optional, Union, Any, Literal
-from langchain_core.messages import AnyMessage
-from langchain_core.runnables import RunnableConfig
-from pydantic import BaseModel
-from langmem.utils import NamespaceTemplate
-from langgraph.store.base import Item, SearchItem
-from langmem import create_manage_memory_tool, create_memory_searcher
-from langgraph.utils.config import get_store
-from langchain_core.tools import BaseTool
 import asyncio
 import functools
+import re
+import typing
+from typing import Any, Literal, Optional, Union
+
+from langchain_core.messages import AnyMessage
+from langchain_core.runnables import Runnable, RunnableConfig
+from langchain_core.tools import BaseTool
+from langgraph.store.base import Item, SearchItem
+from langgraph.utils.config import get_store
+from pydantic import BaseModel
+from typing_extensions import TypedDict
+
+from langmem import create_manage_memory_tool, create_memory_searcher
+from langmem.utils import NamespaceTemplate
 
 # Basically a declarative API for memories that could be composed in prompts.
 # Formatting? (here vs. elsewhere)
 
 
-class MessagesState(typing.TypedDict, total=False):
+class MessagesState(TypedDict, total=False):
     messages: list[AnyMessage]
     query: str | list[str]
 
