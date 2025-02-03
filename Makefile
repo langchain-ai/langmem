@@ -15,7 +15,14 @@ format-docs:
 	uv run ruff check --fix docs/docs
 
 doctest:
-	uv run --with-editable . python -m pytest tests/test_docstring_examples.py -vvv
+	@echo "Starting langgraph server..."
+	uvx --refresh --from "langgraph-cli[inmem]" --with-editable . --python 3.11 langgraph dev --no-browser > /dev/null 2>&1 & echo $$! > .langgraph.pid
+	@echo "Waiting for server to start..."
+	@sleep 2
+	@echo "Running tests..."
+	LANGSMITH_TEST_CACHE=tests/cassettes uv run --with-editable . python -m pytest tests/test_docstring_examples.py -vvv || (kill `cat .langgraph.pid` && rm .langgraph.pid && exit 1)
+	@echo "Cleaning up server..."
+	@kill `cat .langgraph.pid` && rm .langgraph.pid
 
 
 format:

@@ -414,7 +414,7 @@ def create_memory_searcher(
     model: str | BaseChatModel,
     prompt: str = "Search for distinct memories relevant to different aspects of the provided context.",
     *,
-    namespace_prefix: tuple[str, ...] = ("memories", "{langgraph_user_id}"),
+    namespace: tuple[str, ...] = ("memories", "{langgraph_user_id}"),
 ) -> Runnable[MessagesState, typing.Awaitable[list[SearchItem]]]:
     """Creates a memory search pipeline with automatic query generation.
 
@@ -427,7 +427,7 @@ def create_memory_searcher(
             Can be a model name string or a BaseChatModel instance.
         prompt (str, optional): System prompt template for search assistant.
             Defaults to a basic search prompt.
-        namespace_prefix (tuple[str, ...], optional): Storage namespace structure for organizing memories.
+        namespace (tuple[str, ...], optional): Storage namespace structure for organizing memories.
             Defaults to ("memories", "{langgraph_user_id}").
 
     Returns:
@@ -446,7 +446,7 @@ def create_memory_searcher(
             ("memories", user_id), key="preferences", value={"content": "I like sushi"}
         )
         searcher = create_memory_searcher(
-            "openai:gpt-4o-mini", namespace_prefix=("memories", "{langgraph_user_id}")
+            "openai:gpt-4o-mini", namespace=("memories", "{langgraph_user_id}")
         )
 
 
@@ -476,7 +476,7 @@ def create_memory_searcher(
     model_instance = (
         model if isinstance(model, BaseChatModel) else init_chat_model(model)
     )
-    search_tool = create_search_memory_tool(namespace_prefix=namespace_prefix)
+    search_tool = create_search_memory_tool(namespace=namespace)
     query_gen = model_instance.bind_tools([search_tool], tool_choice="search_memory")
 
     def return_sorted(tool_messages: list):
@@ -532,7 +532,7 @@ class MemoryStoreEnricher(Runnable[MemoryStoreEnricherInput, list[dict]]):
         enable_deletes: bool = True,
         query_model: str | BaseChatModel | None = None,
         query_limit: int = 5,
-        namespace_prefix: tuple[str, ...] = ("memories", "{langgraph_user_id}"),
+        namespace: tuple[str, ...] = ("memories", "{langgraph_user_id}"),
         phases: list[MemoryPhase] | None = None,
     ):
         self.model = (
@@ -553,7 +553,7 @@ class MemoryStoreEnricher(Runnable[MemoryStoreEnricherInput, list[dict]]):
         self.enable_deletes = enable_deletes
         self.query_limit = query_limit
         self.phases = phases or []
-        self.namespacer = utils.NamespaceTemplate(namespace_prefix)
+        self.namespacer = utils.NamespaceTemplate(namespace)
 
         self.memory_enricher = create_memory_enricher(
             self.model,
@@ -562,7 +562,7 @@ class MemoryStoreEnricher(Runnable[MemoryStoreEnricherInput, list[dict]]):
             enable_inserts=enable_inserts,
             enable_deletes=enable_deletes,
         )
-        self.search_tool = create_search_memory_tool(namespace_prefix=namespace_prefix)
+        self.search_tool = create_search_memory_tool(namespace=namespace)
         self.query_gen = self.query_model.bind_tools(
             [self.search_tool], tool_choice="any"
         )
@@ -840,7 +840,7 @@ def create_memory_store_enricher(
     enable_deletes: bool = True,
     query_model: str | BaseChatModel | None = None,
     query_limit: int = 5,
-    namespace_prefix: tuple[str, ...] = ("memories", "{langgraph_user_id}"),
+    namespace: tuple[str, ...] = ("memories", "{langgraph_user_id}"),
     phases: list[MemoryPhase] | None = None,
 ) -> MemoryStoreEnricher:
     """End-to-end memory management system with automatic storage integration.
@@ -911,7 +911,7 @@ def create_memory_store_enricher(
         enricher = create_memory_store_enricher(
             "anthropic:claude-3-5-sonnet-latest",
             schemas=[PreferenceMemory],
-            namespace_prefix=("project", "team_1", "{langgraph_user_id}"),
+            namespace=("project", "team_1", "{langgraph_user_id}"),
         )
 
         @entrypoint(store=store)
@@ -973,7 +973,7 @@ def create_memory_store_enricher(
         1. Use a smaller, faster model for query_model to improve search speed
         2. Adjust query_limit based on your needs - higher values provide more
            context but may slow down processing
-        3. Structure your namespace_prefix to organize memories logically,
+        3. Structure your namespace to organize memories logically,
            e.g., ("project", "team", "{langgraph_user_id}")
         4. Consider using enable_deletes=False if you want to maintain
            a history of all memory changes
@@ -997,7 +997,7 @@ def create_memory_store_enricher(
         query_limit (int, optional): Maximum number of relevant memories to retrieve
             for each conversation. Higher limits provide more context but may slow
             down processing. Defaults to 5.
-        namespace_prefix (tuple[str, ...], optional): Storage namespace structure for
+        namespace (tuple[str, ...], optional): Storage namespace structure for
             organizing memories. Supports templated values like "{langgraph_user_id}" which are
             populated from the runtime context. Defaults to ("memories", "{langgraph_user_id}").
 
@@ -1016,7 +1016,7 @@ def create_memory_store_enricher(
         enable_deletes=enable_deletes,
         query_model=query_model,
         query_limit=query_limit,
-        namespace_prefix=namespace_prefix,
+        namespace=namespace,
         phases=phases,
     )
 

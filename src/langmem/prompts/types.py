@@ -34,12 +34,12 @@ class AnnotatedTrajectory(typing.NamedTuple):
 
 
 class OptimizerInput(TypedDict):
-    sessions: typing.Sequence[AnnotatedTrajectory] | str
+    trajectories: typing.Sequence[AnnotatedTrajectory] | str
     prompt: str | Prompt
 
 
 class MultiPromptOptimizerInput(TypedDict):
     """Input for the multi-prompt optimizer."""
 
-    sessions: typing.Sequence[AnnotatedTrajectory] | str
+    trajectories: typing.Sequence[AnnotatedTrajectory] | str
     prompts: list[Prompt]

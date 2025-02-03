@@ -43,9 +43,9 @@ The developer provided these instructions regarding when/how to update:
 ## Session Data
 Analyze the session(s) (and any user feedback) below:
 
-<sessions>
-{sessions}
-</sessions>
+<trajectories>
+{trajectories}
+</trajectories>
 
 ## Instructions
 
@@ -143,23 +143,25 @@ class MetaPromptOptimizer(Runnable[prompt_types.OptimizerInput, str]):
 
     async def __call__(
         self,
-        sessions: prompt_types.OptimizerInput | str,
+        trajectories: prompt_types.OptimizerInput | str,
         prompt: typing.Union[str, Prompt],
     ) -> str:
-        return await self.ainvoke({"sessions": sessions, "prompt": prompt})
+        return await self.ainvoke({"trajectories": trajectories, "prompt": prompt})
 
     def _process_sessions_and_prompt(
         self, input: prompt_types.OptimizerInput
     ) -> tuple[str, str, str]:
         prompt = input["prompt"]
-        sessions = input["sessions"]
+        trajectories = input["trajectories"]
 
         prompt_str = prompt if isinstance(prompt, str) else prompt.get("prompt", "")
         update_instructions = (
             "" if isinstance(prompt, str) else prompt.get("update_instructions", "")
         )
         sessions_str = (
-            sessions if isinstance(sessions, str) else utils.format_sessions(sessions)
+            trajectories
+            if isinstance(trajectories, str)
+            else utils.format_sessions(trajectories)
         )
         return prompt_str, update_instructions, sessions_str
 
@@ -175,7 +177,7 @@ class MetaPromptOptimizer(Runnable[prompt_types.OptimizerInput, str]):
                 "content": self._final_config["metaprompt"].format(
                     prompt=prompt_str,
                     update_instructions=update_instructions,
-                    sessions=sessions_str,
+                    trajectories=sessions_str,
                 ),
             }
         ]
@@ -214,7 +216,7 @@ class MetaPromptOptimizer(Runnable[prompt_types.OptimizerInput, str]):
                 "content": self._final_config["metaprompt"].format(
                     prompt=prompt_str,
                     update_instructions=update_instructions,
-                    sessions=sessions_str,
+                    trajectories=sessions_str,
                 ),
             }
         ]

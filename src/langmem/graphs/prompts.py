@@ -53,7 +53,7 @@ async def optimize(state: InputState, config: RunnableConfig):
         result = await optimizer(threads, prompts[0], configurable)
         return {"updated_prompts": [result]}
     else:
-        optimizer = create_multi_prompt_optimizer(model, kind)
+        optimizer = create_multi_prompt_optimizer(model, kind=kind)
         result = await optimizer(threads, prompts)
         return {"updated_prompts": result}
 

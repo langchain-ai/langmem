@@ -77,7 +77,7 @@ Use parallel tool calling to extract all information the AI will need to adapt a
         schemas=[schemas] if isinstance(schemas, dict) else schemas,
         enable_inserts=configurable.get("enable_inserts", True),
         enable_deletes=configurable.get("enable_deletes", True),
-        namespace_prefix=("{langgraph_auth_user_id}", "semantic", *namespace),
+        namespace=("{langgraph_auth_user_id}", "semantic", *namespace),
         phases=phases,
     )
 

@@ -1,14 +1,14 @@
 """Test runner for executing code examples in docstrings."""
 
 import ast
-import textwrap
-import pytest
-import re
-import logging
 import importlib
+import logging
+import textwrap
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import Any, Dict, List
 
+import langsmith as ls
+import pytest
 
 pytestmark = pytest.mark.anyio
 
@@ -19,13 +19,40 @@ logger = logging.getLogger(__name__)
 
 
 def extract_code_blocks(docstring: str) -> List[str]:
-    """Extract Python code blocks (```python ... ```) from a docstring."""
+    """Extract Python code blocks (```python ... ```) from a docstring.
+    Only matches code blocks at the markdown level, not those inside other code blocks.
+    """
     if not docstring:
         return []
-    pattern = r"```(?:python[ ]*)?(.*?)\s*```"
 
-    matches = re.finditer(pattern, docstring, re.DOTALL)
-    blocks = [textwrap.dedent(m.group(1)).strip() for m in matches]
+    # Split content into lines to process line by line
+    lines = docstring.split("\n")
+    blocks = []
+    current_block = []
+    in_code_block = False
+
+    for line in lines:
+        stripped = line.lstrip()
+        if stripped.startswith("```"):
+            if not in_code_block:
+                # Start of a code block
+                lang = stripped[3:].strip()
+                if lang in ("python", "", "py"):
+                    in_code_block = True
+                    current_block = []
+                else:
+                    in_code_block = "other"
+            elif in_code_block == "other":
+                in_code_block = False
+            else:
+                in_code_block = False
+                if current_block:
+                    blocks.append("\n".join(current_block))
+                current_block = []
+        elif in_code_block:
+            current_block.append(line)
+
+    blocks = [textwrap.dedent(block).strip() for block in blocks]
     logger.debug(f"Found {len(blocks)} code blocks in docstring")
     for i, block in enumerate(blocks):
         logger.debug(f"Code block {i}:\n{block}")
@@ -99,19 +126,23 @@ def extract_readme_examples():
         content = f.read()
 
     code_blocks = extract_code_blocks(content)
-    test_cases = []
-    for i, block in enumerate(code_blocks):
-        test_id = f"README.md::example_{i}"
-        logger.info(f"Adding README test case: {test_id}")
-        test_cases.append(
+    python_blocks = [
+        block
+        for block in code_blocks
+        if not block.startswith(("bash", "text", "js", "javascript", "markdown"))
+    ]
+
+    if python_blocks:
+        logger.info(f"Adding {len(python_blocks)} README code blocks")
+        return [
             pytest.param(
                 None,  # No module
                 "README.md",  # Function name placeholder
-                [block],  # Single example
-                id=test_id,
+                python_blocks,  # All Python blocks together
+                id="README.md::examples",
             )
-        )
-    return test_cases
+        ]
+    return []
 
 
 def collect_docstring_tests():
@@ -124,8 +155,8 @@ def collect_docstring_tests():
     test_cases = []
 
     test_cases.extend(extract_readme_examples())
+    return test_cases
 
-    # Add docstring examples
     for py_file in py_files:
         logger.debug(f"Processing file: {py_file}")
         funcs = get_module_functions(str(py_file))
@@ -150,13 +181,15 @@ def collect_docstring_tests():
 @pytest.mark.asyncio_cooperative
 @pytest.mark.langsmith
 async def test_docstring_example(
-    module_name: str, func_name: str, code_blocks: List[str]
+    module_name: str | None, func_name: str, code_blocks: List[str]
 ):
     """Execute all docstring code blocks from a function in sequence, maintaining state."""
-    # For README examples, we don't need to import anything
     if module_name is None:
-        obj = None
-        module = None
+        # Don't need to import anythign but we still share a context bcs reasons
+        namespace = {
+            "__name__": f"docstring_example_{func_name.replace('.', '_')}",
+            "__file__": "README.md",
+        }
     else:
         # Dynamically import the module
         module = importlib.import_module(module_name)
@@ -171,33 +204,32 @@ async def test_docstring_example(
         for part in func_name_.split("."):
             obj = getattr(obj, part)
 
-    # Prepare a fresh namespace that will be shared across all code blocks
-    namespace = {
-        "__name__": f"docstring_example_{func_name.replace('.', '_')}",
-        "__file__": getattr(module, "__file__", None),
-        module_name.split(".")[-1]: module,
-        func_name.split(".")[-1]: obj,
-    }
+        namespace = {
+            "__name__": f"docstring_example_{func_name.replace('.', '_')}",
+            "__file__": getattr(module, "__file__", None),
+            module_name.split(".")[-1]: module,
+            func_name.split(".")[-1]: obj,
+        }
+    with ls.tracing_context(project_name="langmem_docstrings"):
 
-    # Execute each code block in sequence, maintaining the namespace
-    for i, code_block in enumerate(code_blocks):
-        try:
-            if "await " in code_block:
-                # For async blocks, we need to capture the locals after execution
-                wrapped_code = f"""
-async def _test_docstring():
-    global_ns = globals()
-{textwrap.indent(code_block, '    ')}
-    # Update namespace with all locals
-    global_ns.update(locals())
-"""
-                exec(wrapped_code, namespace, namespace)
-                await namespace["_test_docstring"]()
-            else:
-                exec(code_block, namespace, namespace)
+        for i, code_block in enumerate(code_blocks):
+            try:
+                if "await " in code_block:
+                    # For async blocks, we need to capture the locals after execution
+                    wrapped_code = f"""
+    async def _test_docstring():
+        global_ns = globals()
+    {textwrap.indent(code_block, '    ')}
+        # Update namespace with all locals
+        global_ns.update(locals())
+    """
+                    exec(wrapped_code, namespace, namespace)
+                    await namespace["_test_docstring"]()
+                else:
+                    exec(code_block, namespace, namespace)
 
-            # Log what was added to namespace
-        except Exception as e:
-            logger.error(f"Error executing code block {i} for {func_name}: {e}")
-            logger.error(f"Code block contents:\n{code_block}")
-            raise
+                # Log what was added to namespace
+            except Exception as e:
+                e.add_note(f"Error executing code block {i} for {func_name}: {e}")
+                e.add_note(f"Code block contents:\n{code_block}")
+                raise

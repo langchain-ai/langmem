@@ -10,7 +10,7 @@ This module provides utilities for improving prompts based on conversation histo
         - prompt_memory: Uses conversation history for context-aware updates
 
 2. Multi-Prompt Optimization:
-    - `create_multi_prompt_optimizer(model, kind="metaprompt"|"gradient"|"prompt_memory") -> ((sessions, prompts) -> list[Prompt])`:
+    - `create_multi_prompt_optimizer(model, kind="metaprompt"|"gradient"|"prompt_memory") -> ((trajectories, prompts) -> list[Prompt])`:
         Create an optimizer for improving multiple related prompts while maintaining consistency
         and leveraging shared context between them. Particularly useful for prompt chains
         and multi-agent systems.

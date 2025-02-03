@@ -1,7 +1,7 @@
 import typing
 import uuid
 
-from langchain_core.tools import tool
+from langchain_core.tools import StructuredTool
 from langgraph.utils.config import get_store
 
 from langmem import utils
@@ -15,7 +15,7 @@ def create_manage_memory_tool(
 2. Receive an explicit USER request to remember something or otherwise alter your behavior.
 3. Are working and want to record important context.
 4. Identify that an existing MEMORY is incorrect or outdated.""",
-    namespace_prefix: tuple[str, ...]  = (
+    namespace: tuple[str, ...] = (
         "memories",
         "{langgraph_user_id}",
     ),
@@ -30,7 +30,7 @@ def create_manage_memory_tool(
     Args:
         instructions: Custom instructions for when to use the memory tool.
             Defaults to a predefined set of guidelines for proactive memory management.
-        namespace_prefix: Storage namespace
+        namespace: Storage namespace
             structure for organizing memories.
         kind: Whether to support single or multiple
             memories per conversation.
@@ -47,7 +47,7 @@ def create_manage_memory_tool(
         memory_tool = create_manage_memory_tool(
             # All memories saved to this tool will live within this namespace
             # The brackets will be populated at runtime by the configurable values
-            namespace_prefix=("project_memories", "{langgraph_user_id}"),
+            namespace=("project_memories", "{langgraph_user_id}"),
         )
 
         store = InMemoryStore()
@@ -86,37 +86,22 @@ def create_manage_memory_tool(
         # Output: 'updated memory 123e4567-e89b-12d3-a456-426614174000'
         ```
 
-<<<<<<< Updated upstream
-    Args:
-        instructions (str, optional): Custom instructions for when to use the memory tool.
-            Defaults to a predefined set of guidelines for proactive memory management.
-        namespace_prefix (Union[tuple[str, ...], NamespaceTemplate], optional): Storage namespace
-            structure for organizing memories. Defaults to ("memories", "{langgraph_user_id}").
-        kind (Literal["single", "multi"], optional): Whether to support single or multiple
-            memories per conversation. Defaults to "multi".
-=======
-    
->>>>>>> Stashed changes
-
     Returns:
         memory_tool (Tool): A decorated async function that can be used as a tool for memory management.
             The tool supports creating, updating, and deleting memories with proper validation.
     """
     namespacer = (
-        utils.NamespaceTemplate(namespace_prefix)
-        if isinstance(namespace_prefix, tuple)
-        else namespace_prefix
+        utils.NamespaceTemplate(namespace)
+        if isinstance(namespace, tuple)
+        else namespace
     )
 
-    @tool
-    async def manage_memory(
+    async def amanage_memory(
         content: typing.Optional[str] = None,
         action: typing.Literal["create", "update", "delete"] = "create",
         *,
         id: typing.Optional[uuid.UUID] = None,
     ):
-        """Create, update, or delete persistent MEMORIES that will be carried over to future conversations.
-        {instructions}"""
         store = get_store()
 
         if action == "create" and id is not None:
@@ -141,9 +126,42 @@ def create_manage_memory_tool(
         )
         return f"{action}d memory {id}"
 
-    manage_memory.__doc__.format(instructions=instructions)
+    def manage_memory(
+        content: typing.Optional[str] = None,
+        action: typing.Literal["create", "update", "delete"] = "create",
+        *,
+        id: typing.Optional[uuid.UUID] = None,
+    ):
+        store = get_store()
 
-    return manage_memory
+        if action == "create" and id is not None:
+            raise ValueError(
+                "You cannot provide a MEMORY ID when creating a MEMORY. Please try again, omitting the id argument."
+            )
+
+        if action in ("delete", "update") and not id:
+            raise ValueError(
+                "You must provide a MEMORY ID when deleting or updating a MEMORY."
+            )
+        namespace = namespacer()
+        if action == "delete":
+            store.delete(namespace, key=str(id))
+            return f"Deleted memory {id}"
+
+        id = id or uuid.uuid4()
+        store.put(
+            namespace,
+            key=str(id),
+            value={"content": content},
+        )
+        return f"{action}d memory {id}"
+
+    description = """Create, update, or delete persistent MEMORIES that will be carried over to future conversations.
+        {instructions}""".format(instructions=instructions)
+
+    return StructuredTool.from_function(
+        manage_memory, amanage_memory, name="manage_memory", description=description
+    )
 
 
 _MEMORY_SEARCH_INSTRUCTIONS = ""
@@ -151,19 +169,17 @@ _MEMORY_SEARCH_INSTRUCTIONS = ""
 
 def create_search_memory_tool(
     instructions: str = _MEMORY_SEARCH_INSTRUCTIONS,
-    namespace_prefix: tuple[str, ...] = ("memories", "{langgraph_user_id}"),
+    namespace: tuple[str, ...] = ("memories", "{langgraph_user_id}"),
 ):
-    namespacer = utils.NamespaceTemplate(namespace_prefix)
+    namespacer = utils.NamespaceTemplate(namespace)
 
-    @tool(response_format="content_and_artifact")
-    async def search_memory(
+    async def asearch_memory(
         query: str,
         *,
         limit: int = 10,
         offset: int = 0,
         filter: typing.Optional[dict] = None,
     ):
-        """Search your long-term memories for information relevant to your current context. {instructions}"""
         store = get_store()
         namespace = namespacer()
         memories = await store.asearch(
@@ -175,6 +191,32 @@ def create_search_memory_tool(
         )
         return [m.dict() for m in memories], memories
 
-    search_memory.__doc__.format(instructions=instructions)  # type: ignore
+    def search_memory(
+        query: str,
+        *,
+        limit: int = 10,
+        offset: int = 0,
+        filter: typing.Optional[dict] = None,
+    ):
+        store = get_store()
+        namespace = namespacer()
+        memories = store.search(
+            namespace,
+            query=query,
+            filter=filter,
+            limit=limit,
+            offset=offset,
+        )
+        return [m.dict() for m in memories], memories
 
-    return search_memory
+    description = """Search your long-term memories for information relevant to your current context. {instructions}""".format(
+        instructions=instructions
+    )
+
+    return StructuredTool.from_function(
+        search_memory,
+        asearch_memory,
+        name="search_memory",
+        description=description,
+        response_format="content_and_artifact",
+    )

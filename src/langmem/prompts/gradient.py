@@ -31,11 +31,11 @@ The developer provided the following instructions around when and how to update 
 
 ## Session data
 
-Analyze the following sessions (and any associated user feedback) (either conversations with a user or other work that was performed by the assistant):
+Analyze the following trajectories (and any associated user feedback) (either conversations with a user or other work that was performed by the assistant):
 
-<sessions>
-{sessions}
-</sessions>
+<trajectories>
+{trajectories}
+</trajectories>
 
 ## Task
 
@@ -98,7 +98,7 @@ class GradientOptimizerConfig(TypedDict, total=False):
 class GradientOptimizerInput(TypedDict, total=False):
     """Input to the gradient optimizer."""
 
-    sessions: prompt_types.OptimizerInput | str
+    trajectories: prompt_types.OptimizerInput | str
     prompt: str | prompt_types.Prompt
 
 
@@ -297,7 +297,7 @@ class GradientPromptOptimizer(Runnable[GradientOptimizerInput, str]):
         Extract prompt_str, sessions_str, feedback, update_instructions from input.
         """
         prompt_data = input["prompt"]
-        sessions_data = input["sessions"]
+        sessions_data = input["trajectories"]
 
         if isinstance(prompt_data, str):
             prompt_str = prompt_data
@@ -335,11 +335,11 @@ class GradientPromptOptimizer(Runnable[GradientOptimizerInput, str]):
                 self._process_input(input)
             )
             if not sessions_str:
-                return prompt_str  # no sessions => no change
+                return prompt_str  # no trajectories => no change
 
             # Format the initial question to the reflection chain:
             reflection_input = self._config["gradient_prompt"].format(
-                sessions=sessions_str,
+                trajectories=sessions_str,
                 feedback=feedback,
                 prompt=prompt_str,
                 update_instructions=update_instructions,
@@ -378,7 +378,7 @@ class GradientPromptOptimizer(Runnable[GradientOptimizerInput, str]):
                 return prompt_str
 
             reflection_input = self._config["gradient_prompt"].format(
-                sessions=sessions_str,
+                trajectories=sessions_str,
                 feedback=feedback,
                 prompt=prompt_str,
                 update_instructions=update_instructions,
@@ -400,14 +400,14 @@ class GradientPromptOptimizer(Runnable[GradientOptimizerInput, str]):
 
     async def __call__(
         self,
-        sessions: prompt_types.OptimizerInput | str,
+        trajectories: prompt_types.OptimizerInput | str,
         prompt: Union[str, prompt_types.Prompt],
     ) -> str:
         """
-        Allow the object to be called like: await gradient_optimizer(sessions, prompt).
+        Allow the object to be called like: await gradient_optimizer(trajectories, prompt).
         This simply defers to `ainvoke` with the required structure.
         """
-        return await self.ainvoke({"sessions": sessions, "prompt": prompt})
+        return await self.ainvoke({"trajectories": trajectories, "prompt": prompt})
 
 
 def create_gradient_prompt_optimizer(

@@ -26,15 +26,15 @@ KINDS = typing.Literal["gradient", "metaprompt", "prompt_memory"]
 class PromptOptimizerProto(Runnable[prompt_types.OptimizerInput, str]):
     """
     Protocol for a single-prompt optimizer that can be called as:
-       await optimizer(sessions, prompt)
+       await optimizer(trajectories, prompt)
     or
-       await optimizer.ainvoke({"sessions": ..., "prompt": ...})
+       await optimizer.ainvoke({"trajectories": ..., "prompt": ...})
     returning an updated prompt string.
     """
 
     async def __call__(
         self,
-        sessions: typing.Sequence[prompt_types.AnnotatedTrajectory] | str,
+        trajectories: typing.Sequence[prompt_types.AnnotatedTrajectory] | str,
         prompt: str | Prompt,
     ) -> str: ...
 
@@ -93,9 +93,9 @@ def create_prompt_optimizer(
         feedback = {"clarity": "needs more structure"}
 
         # Use conversation history to improve the prompt
-        sessions = [(conversation, feedback)]
+        trajectories = [(conversation, feedback)]
         better_prompt = await optimizer.ainvoke(
-            {"sessions": sessions, "prompt": "You are an astronomy expert"}
+            {"trajectories": trajectories, "prompt": "You are an astronomy expert"}
         )
         print(better_prompt)
         # Output: 'Provide a comprehensive overview of the solar system...'
@@ -117,8 +117,8 @@ def create_prompt_optimizer(
         feedback = "Response should include a code example"
 
         # Use the conversation and feedback to improve the prompt
-        sessions = [(conversation, {"feedback": feedback})]
-        better_prompt = await optimizer(sessions, "You are a coding assistant")
+        trajectories = [(conversation, {"feedback": feedback})]
+        better_prompt = await optimizer(trajectories, "You are a coding assistant")
         print(better_prompt)
         # Output: 'You are a coding assistant that always includes...'
         ```
@@ -141,9 +141,9 @@ def create_prompt_optimizer(
         feedback = "Need better organization and concrete examples"
 
         # Optimize with meta-learning
-        sessions = [(conversation, feedback)]
+        trajectories = [(conversation, feedback)]
         improved_prompt = await optimizer(
-            sessions, "You are a quantum computing expert"
+            trajectories, "You are a quantum computing expert"
         )
         ```
 
@@ -159,7 +159,7 @@ def create_prompt_optimizer(
            - gradient: Good for iterative improvements
            - prompt_memory: Best when you have example conversations
            - metaprompt: Ideal for complex, multi-step tasks
-        2. Provide specific feedback in conversation sessions
+        2. Provide specific feedback in conversation trajectories
         3. Use config options to control optimization behavior
         4. Start with simpler strategies and only use more complex
            ones if needed
@@ -181,7 +181,7 @@ def create_prompt_optimizer(
             Defaults to None.
 
     Returns:
-        optimizer (PromptOptimizerProto): A callable that takes conversation sessions and/or prompts and returns optimized versions.
+        optimizer (PromptOptimizerProto): A callable that takes conversation trajectories and/or prompts and returns optimized versions.
     """
     if kind == "gradient":
         return create_gradient_prompt_optimizer(model, config)  # type: ignore
@@ -223,25 +223,25 @@ class MultiPromptOptimizer(
             inputs=input,
             metadata={"kind": self.kind},
         ) as rt:
-            sessions = input["sessions"]
+            trajectories = input["trajectories"]
             prompts = input["prompts"]
 
             # Get available prompt names.
             choices = [p["name"] for p in prompts]
             sessions_str = (
-                sessions
-                if isinstance(sessions, str)
-                else utils.format_sessions(sessions)
+                trajectories
+                if isinstance(trajectories, str)
+                else utils.format_sessions(trajectories)
             )
 
             # If only one prompt and no explicit when_to_update instruction, simply update it.
             if len(prompts) == 1 and prompts[0].get("when_to_update") is None:
-                updated_prompt = await self._optimizer(sessions, prompts[0])
+                updated_prompt = await self._optimizer(trajectories, prompts[0])
                 rt.add_outputs({"output": [{**prompts[0], "prompt": updated_prompt}]})
                 return [{**prompts[0], "prompt": updated_prompt}]
 
             class Classify(BaseModel):
-                """After analyzing the provided sessions, determine which prompt modules (if any) contributed to degraded performance."""
+                """After analyzing the provided trajectories, determine which prompt modules (if any) contributed to degraded performance."""
 
                 reasoning: str = Field(
                     description="Reasoning for which prompts to update."
@@ -265,8 +265,8 @@ class MultiPromptOptimizer(
             prompt_joined_content = "".join(
                 f"{p['name']}: {p['prompt']}\n" for p in prompts
             )
-            classification_prompt = f"""Analyze the following sessions and decide which prompts 
-ought to be updated to improve the performance on future sessions:
+            classification_prompt = f"""Analyze the following trajectories and decide which prompts 
+ought to be updated to improve the performance on future trajectories:
 
 {sessions_str}
 
@@ -281,7 +281,7 @@ Return JSON with "which": [...], listing the names of prompts that need updates.
 
             # Update each chosen prompt concurrently.
             updated_results = await asyncio.gather(
-                *[self._optimizer(sessions, prompt=p) for p in which_to_update]
+                *[self._optimizer(trajectories, prompt=p) for p in which_to_update]
             )
             updated_map = {
                 p["name"]: new_text
@@ -309,26 +309,26 @@ Return JSON with "which": [...], listing the names of prompts that need updates.
             inputs=input,
             metadata={"kind": self.kind},
         ) as rt:
-            sessions = input["sessions"]
+            trajectories = input["trajectories"]
             prompts = input["prompts"]
 
             choices = [p["name"] for p in prompts]
             sessions_str = (
-                sessions
-                if isinstance(sessions, str)
-                else utils.format_sessions(sessions)
+                trajectories
+                if isinstance(trajectories, str)
+                else utils.format_sessions(trajectories)
             )
 
             if len(prompts) == 1 and prompts[0].get("when_to_update") is None:
                 updated_prompt = self._optimizer.invoke(
-                    {"sessions": sessions, "prompt": prompts[0]}
+                    {"trajectories": trajectories, "prompt": prompts[0]}
                 )
                 result = [{**prompts[0], "prompt": updated_prompt}]
                 rt.add_outputs({"output": result})
                 return typing.cast(list[Prompt], result)
 
             class Classify(BaseModel):
-                """After analyzing the provided sessions, determine which prompt modules (if any) contributed to degraded performance."""
+                """After analyzing the provided trajectories, determine which prompt modules (if any) contributed to degraded performance."""
 
                 reasoning: str = Field(
                     description="Reasoning for which prompts to update."
@@ -352,8 +352,8 @@ Return JSON with "which": [...], listing the names of prompts that need updates.
             prompt_joined_content = "".join(
                 f"{p['name']}: {p['prompt']}\n" for p in prompts
             )
-            classification_prompt = f"""Analyze the following sessions and decide which prompts 
-ought to be updated to improve the performance on future sessions:
+            classification_prompt = f"""Analyze the following trajectories and decide which prompts 
+ought to be updated to improve the performance on future trajectories:
 
 {sessions_str}
 
@@ -368,7 +368,7 @@ Return JSON with "which": [...], listing the names of prompts that need updates.
             updated_map = {}
             for p in which_to_update:
                 updated_text = self._optimizer.invoke(
-                    {"sessions": sessions, "prompt": p}
+                    {"trajectories": trajectories, "prompt": p}
                 )
                 updated_map[p["name"]] = updated_text
 
@@ -383,12 +383,14 @@ Return JSON with "which": [...], listing the names of prompts that need updates.
 
     async def __call__(
         self,
-        sessions: typing.Sequence[prompt_types.AnnotatedTrajectory] | str,
+        trajectories: typing.Sequence[prompt_types.AnnotatedTrajectory] | str,
         prompts: list[Prompt],
     ) -> list[Prompt]:
-        """Allow calling the object like: await optimizer(sessions, prompts)"""
+        """Allow calling the object like: await optimizer(trajectories, prompts)"""
         return await self.ainvoke(
-            prompt_types.MultiPromptOptimizerInput(sessions=sessions, prompts=prompts)
+            prompt_types.MultiPromptOptimizerInput(
+                trajectories=trajectories, prompts=prompts
+            )
         )
 
 
@@ -420,13 +422,13 @@ def create_multi_prompt_optimizer(
         feedback = {"clarity": "needs more structure"}
 
         # Use conversation history to improve the prompts
-        sessions = [(conversation, feedback)]
+        trajectories = [(conversation, feedback)]
         prompts = [
             {"name": "research", "prompt": "Research the given topic thoroughly"},
             {"name": "summarize", "prompt": "Summarize the research findings"},
         ]
         better_prompts = await optimizer.ainvoke(
-            {"sessions": sessions, "prompts": prompts}
+            {"trajectories": trajectories, "prompts": prompts}
         )
         print(better_prompts)
         ```
@@ -447,12 +449,12 @@ def create_multi_prompt_optimizer(
         feedback = "Response should include a code example"
 
         # Use the conversation and feedback to improve the prompts
-        sessions = [(conversation, {"feedback": feedback})]
+        trajectories = [(conversation, {"feedback": feedback})]
         prompts = [
             {"name": "explain", "prompt": "Explain the concept"},
             {"name": "example", "prompt": "Provide a practical example"},
         ]
-        better_prompts = await optimizer(sessions, prompts)
+        better_prompts = await optimizer(trajectories, prompts)
         ```
 
         Meta-prompt optimization for complex tasks:
@@ -473,13 +475,13 @@ def create_multi_prompt_optimizer(
         feedback = "Need better organization and concrete examples"
 
         # Optimize with meta-learning
-        sessions = [(conversation, feedback)]
+        trajectories = [(conversation, feedback)]
         prompts = [
             {"name": "concept", "prompt": "Explain quantum concepts"},
             {"name": "application", "prompt": "Show practical applications"},
             {"name": "example", "prompt": "Give concrete examples"},
         ]
-        improved_prompts = await optimizer(sessions, prompts)
+        improved_prompts = await optimizer(trajectories, prompts)
         ```
 
     !!! warning
@@ -494,7 +496,7 @@ def create_multi_prompt_optimizer(
            - gradient: Good for iterative improvements
            - prompt_memory: Best when you have example conversations
            - metaprompt: Ideal for complex, multi-step tasks
-        2. Provide specific feedback in conversation sessions
+        2. Provide specific feedback in conversation trajectories
         3. Use config options to control optimization behavior
         4. Start with simpler strategies and only use more complex
            ones if needed
@@ -516,7 +518,7 @@ def create_multi_prompt_optimizer(
             Defaults to None.
 
     Returns:
-        MultiPromptOptimizer: A Runnable that takes conversation sessions and prompts
+        MultiPromptOptimizer: A Runnable that takes conversation trajectories and prompts
             and returns optimized versions.
     """
     return MultiPromptOptimizer(model, kind=kind, config=config)
