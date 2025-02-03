@@ -2,13 +2,13 @@ from typing import Any, Optional, Union
 
 import langsmith as ls
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, AnyMessage
+from langchain_core.messages import AIMessage
 from langchain_core.runnables import Runnable, RunnableConfig
 from trustcall import create_extractor
 from typing_extensions import TypedDict
 
 from langmem import utils
-from langmem.prompts import types
+from langmem.prompts import types as prompt_types
 
 DEFAULT_MAX_REFLECTION_STEPS = 5
 DEFAULT_MIN_REFLECTION_STEPS = 1
@@ -36,14 +36,6 @@ Analyze the following sessions (and any associated user feedback) (either conver
 <sessions>
 {sessions}
 </sessions>
-
-i## Feedback
-
-The following feedback is provided for this session:
-
-<feedback>
-{feedback}
-</feedback>
 
 ## Task
 
@@ -106,8 +98,8 @@ class GradientOptimizerConfig(TypedDict, total=False):
 class GradientOptimizerInput(TypedDict, total=False):
     """Input to the gradient optimizer."""
 
-    sessions: Union[list[Union[tuple[list[AnyMessage], dict[str, str]], str]], str]
-    prompt: Union[str, types.Prompt]
+    sessions: prompt_types.OptimizerInput | str
+    prompt: str | prompt_types.Prompt
 
 
 class GradientPromptOptimizer(Runnable[GradientOptimizerInput, str]):
@@ -323,9 +315,6 @@ class GradientPromptOptimizer(Runnable[GradientOptimizerInput, str]):
 
         return prompt_str, sessions_str, feedback, update_instructions
 
-    #
-    # The public async & sync methods (ainvoke/invoke) + optional __call__
-    #
     async def ainvoke(
         self,
         input: GradientOptimizerInput,
@@ -411,8 +400,8 @@ class GradientPromptOptimizer(Runnable[GradientOptimizerInput, str]):
 
     async def __call__(
         self,
-        sessions: Union[list[Union[tuple[list[AnyMessage], dict[str, str]], str]], str],
-        prompt: Union[str, types.Prompt],
+        sessions: prompt_types.OptimizerInput | str,
+        prompt: Union[str, prompt_types.Prompt],
     ) -> str:
         """
         Allow the object to be called like: await gradient_optimizer(sessions, prompt).

@@ -20,7 +20,6 @@ from langchain_core.runnables import Runnable, RunnableConfig
 from typing_extensions import TypedDict
 
 
-# For type clarity, define a typed dict for the input:
 class SingleMemoryInput(TypedDict, total=False):
     """Represents the input to PromptMemory.invoke / PromptMemory.ainvoke."""
 

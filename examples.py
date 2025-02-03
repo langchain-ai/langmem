@@ -300,12 +300,12 @@ print(json.dumps(inputs, indent=2))
 # # Create tools with custom configuration
 # manager = create_manage_memory_tool(
 #     instructions=manage_instructions,
-#     namespace_prefix=("support_memories", "{user_id}", "{category}")
+#     namespace_prefix=("support_memories", "{langgraph_user_id}", "{category}")
 # )
 
 # searcher = create_search_memory_tool(
 #     instructions=search_instructions,
-#     namespace_prefix=("support_memories", "{user_id}", "{category}")
+#     namespace_prefix=("support_memories", "{langgraph_user_id}", "{category}")
 # )
 
 # # Create agent with configured tools
@@ -316,7 +316,7 @@ print(json.dumps(inputs, indent=2))
 # result = await agent.ainvoke({
 #     "messages": [{"role": "user", "content": "I prefer email support over chat."}],
 #     "configurable": {
-#         "user_id": "user123",
+#         "langgraph_user_id": "user123",
 #         "category": "preferences"
 #     }
 # })
@@ -349,7 +349,7 @@ print(json.dumps(inputs, indent=2))
 # 4. Update existing memories with new information
 # 5. Maintain confidence scores for each memory""",
 #     enable_inserts=True,
-#     namespace_prefix=("support_memories", "{user_id}", "{category}")
+#     namespace_prefix=("support_memories", "{langgraph_user_id}", "{category}")
 # )
 
 # @entrypoint(store=store)
@@ -360,7 +360,7 @@ print(json.dumps(inputs, indent=2))
 # await support_memory_pipeline.ainvoke({
 #     "messages": conversation,
 #     "configurable": {
-#         "user_id": "user123",
+#         "langgraph_user_id": "user123",
 #         "category": "support"
 #     }
 # })

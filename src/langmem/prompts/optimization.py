@@ -1,14 +1,14 @@
 import asyncio
 import typing
-from typing import Protocol, runtime_checkable
 
 import langsmith as ls
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AnyMessage
+from langchain_core.runnables import Runnable, RunnableConfig
 from pydantic import BaseModel, Field, model_validator
 from trustcall import create_extractor
 
 import langmem.utils as utils
+from langmem.prompts import types as prompt_types
 from langmem.prompts.gradient import (
     GradientOptimizerConfig,
     create_gradient_prompt_optimizer,
@@ -23,8 +23,7 @@ from langmem.prompts.types import Prompt
 KINDS = typing.Literal["gradient", "metaprompt", "prompt_memory"]
 
 
-@runtime_checkable
-class PromptOptimizerProto(Protocol):
+class PromptOptimizerProto(Runnable[prompt_types.OptimizerInput, str]):
     """
     Protocol for a single-prompt optimizer that can be called as:
        await optimizer(sessions, prompt)
@@ -35,7 +34,7 @@ class PromptOptimizerProto(Protocol):
 
     async def __call__(
         self,
-        sessions: list[tuple[list[AnyMessage], typing.Optional[dict[str, str]]]] | str,
+        sessions: typing.Sequence[prompt_types.AnnotatedTrajectory] | str,
         prompt: str | Prompt,
     ) -> str: ...
 
@@ -72,7 +71,7 @@ def create_prompt_optimizer(
     config: typing.Union[
         GradientOptimizerConfig, MetapromptOptimizerConfig, None
     ] = None,
-):
+) -> PromptOptimizerProto:
     """Create a prompt optimizer that improves prompt effectiveness.
 
     This function creates an optimizer that can analyze and improve prompts for better
@@ -196,55 +195,201 @@ def create_prompt_optimizer(
         )
 
 
-@typing.overload
-def create_multi_prompt_optimizer(
-    model: str | BaseChatModel,
-    kind: typing.Literal["gradient"] = "gradient",
-    config: typing.Optional[GradientOptimizerConfig] = None,
-) -> typing.Callable[
-    [
-        list[list[AnyMessage]]
-        | list[AnyMessage]
-        | list[tuple[list[AnyMessage], str]]
-        | str,
-        list[Prompt],
-    ],
-    typing.Awaitable[list[Prompt]],
-]: ...
+class MultiPromptOptimizer(
+    Runnable[prompt_types.MultiPromptOptimizerInput, list[Prompt]]
+):
+    def __init__(
+        self,
+        model: str | BaseChatModel,
+        /,
+        *,
+        kind: typing.Literal["gradient", "prompt_memory", "metaprompt"] = "gradient",
+        config: typing.Optional[dict] = None,
+    ):
+        self.model = model
+        self.kind = kind
+        self.config = config
+        # Build a single-prompt optimizer used internally
+        self._optimizer = create_prompt_optimizer(model, kind=kind, config=config)
 
+    async def ainvoke(
+        self,
+        input: prompt_types.MultiPromptOptimizerInput,
+        config: typing.Optional[RunnableConfig] = None,
+        **kwargs: typing.Any,
+    ) -> list[Prompt]:
+        async with ls.trace(
+            name="multi_prompt_optimizer.ainvoke",
+            inputs=input,
+            metadata={"kind": self.kind},
+        ) as rt:
+            sessions = input["sessions"]
+            prompts = input["prompts"]
 
-@typing.overload
-def create_multi_prompt_optimizer(
-    model: str | BaseChatModel,
-    kind: typing.Literal["metaprompt"] = "metaprompt",
-    config: typing.Optional[MetapromptOptimizerConfig] = None,
-) -> typing.Callable[
-    [
-        list[list[AnyMessage]]
-        | list[AnyMessage]
-        | list[tuple[list[AnyMessage], str]]
-        | str,
-        list[Prompt],
-    ],
-    typing.Awaitable[list[Prompt]],
-]: ...
+            # Get available prompt names.
+            choices = [p["name"] for p in prompts]
+            sessions_str = (
+                sessions
+                if isinstance(sessions, str)
+                else utils.format_sessions(sessions)
+            )
 
+            # If only one prompt and no explicit when_to_update instruction, simply update it.
+            if len(prompts) == 1 and prompts[0].get("when_to_update") is None:
+                updated_prompt = await self._optimizer(sessions, prompts[0])
+                rt.add_outputs({"output": [{**prompts[0], "prompt": updated_prompt}]})
+                return [{**prompts[0], "prompt": updated_prompt}]
 
-@typing.overload
-def create_multi_prompt_optimizer(
-    model: str | BaseChatModel,
-    kind: typing.Literal["prompt_memory"] = "prompt_memory",
-    config: None = None,
-) -> typing.Callable[
-    [
-        list[list[AnyMessage]]
-        | list[AnyMessage]
-        | list[tuple[list[AnyMessage], str]]
-        | str,
-        list[Prompt],
-    ],
-    typing.Awaitable[list[Prompt]],
-]: ...
+            class Classify(BaseModel):
+                """After analyzing the provided sessions, determine which prompt modules (if any) contributed to degraded performance."""
+
+                reasoning: str = Field(
+                    description="Reasoning for which prompts to update."
+                )
+                which: list[str] = Field(
+                    description=f"List of prompt names that should be updated. Must be among {choices}"
+                )
+
+                @model_validator(mode="after")
+                def validate_choices(self) -> "Classify":
+                    invalid = set(self.which) - set(choices)
+                    if invalid:
+                        raise ValueError(
+                            f"Invalid choices: {invalid}. Must be among: {choices}"
+                        )
+                    return self
+
+            classifier = create_extractor(
+                self.model, tools=[Classify], tool_choice="Classify"
+            )
+            prompt_joined_content = "".join(
+                f"{p['name']}: {p['prompt']}\n" for p in prompts
+            )
+            classification_prompt = f"""Analyze the following sessions and decide which prompts 
+ought to be updated to improve the performance on future sessions:
+
+{sessions_str}
+
+Below are the prompts being optimized:
+{prompt_joined_content}
+
+Return JSON with "which": [...], listing the names of prompts that need updates."""
+            result = await classifier.ainvoke(classification_prompt)
+            to_update = result["responses"][0].which  # type: ignore
+
+            which_to_update = [p for p in prompts if p["name"] in to_update]
+
+            # Update each chosen prompt concurrently.
+            updated_results = await asyncio.gather(
+                *[self._optimizer(sessions, prompt=p) for p in which_to_update]
+            )
+            updated_map = {
+                p["name"]: new_text
+                for p, new_text in zip(which_to_update, updated_results)
+            }
+
+            # Merge updates back into the prompt list.
+            final_list = []
+            for p in prompts:
+                if p["name"] in updated_map:
+                    final_list.append({**p, "prompt": updated_map[p["name"]]})
+                else:
+                    final_list.append(p)
+            rt.add_outputs({"output": final_list})
+            return final_list
+
+    def invoke(
+        self,
+        input: prompt_types.MultiPromptOptimizerInput,
+        config: typing.Optional[RunnableConfig] = None,
+        **kwargs: typing.Any,
+    ) -> list[Prompt]:
+        with ls.trace(
+            name="multi_prompt_optimizer.invoke",
+            inputs=input,
+            metadata={"kind": self.kind},
+        ) as rt:
+            sessions = input["sessions"]
+            prompts = input["prompts"]
+
+            choices = [p["name"] for p in prompts]
+            sessions_str = (
+                sessions
+                if isinstance(sessions, str)
+                else utils.format_sessions(sessions)
+            )
+
+            if len(prompts) == 1 and prompts[0].get("when_to_update") is None:
+                updated_prompt = self._optimizer.invoke(
+                    {"sessions": sessions, "prompt": prompts[0]}
+                )
+                result = [{**prompts[0], "prompt": updated_prompt}]
+                rt.add_outputs({"output": result})
+                return typing.cast(list[Prompt], result)
+
+            class Classify(BaseModel):
+                """After analyzing the provided sessions, determine which prompt modules (if any) contributed to degraded performance."""
+
+                reasoning: str = Field(
+                    description="Reasoning for which prompts to update."
+                )
+                which: list[str] = Field(
+                    description=f"List of prompt names that should be updated. Must be among {choices}"
+                )
+
+                @model_validator(mode="after")
+                def validate_choices(self) -> "Classify":
+                    invalid = set(self.which) - set(choices)
+                    if invalid:
+                        raise ValueError(
+                            f"Invalid choices: {invalid}. Must be among: {choices}"
+                        )
+                    return self
+
+            classifier = create_extractor(
+                self.model, tools=[Classify], tool_choice="Classify"
+            )
+            prompt_joined_content = "".join(
+                f"{p['name']}: {p['prompt']}\n" for p in prompts
+            )
+            classification_prompt = f"""Analyze the following sessions and decide which prompts 
+ought to be updated to improve the performance on future sessions:
+
+{sessions_str}
+
+Below are the prompts being optimized:
+{prompt_joined_content}
+
+Return JSON with "which": [...], listing the names of prompts that need updates."""
+            result = classifier.invoke(classification_prompt)
+            to_update = result["responses"][0].which  # type: ignore
+
+            which_to_update = [p for p in prompts if p["name"] in to_update]
+            updated_map = {}
+            for p in which_to_update:
+                updated_text = self._optimizer.invoke(
+                    {"sessions": sessions, "prompt": p}
+                )
+                updated_map[p["name"]] = updated_text
+
+            final_list = []
+            for p in prompts:
+                if p["name"] in updated_map:
+                    final_list.append({**p, "prompt": updated_map[p["name"]]})
+                else:
+                    final_list.append(p)
+            rt.add_outputs({"output": final_list})
+            return final_list
+
+    async def __call__(
+        self,
+        sessions: typing.Sequence[prompt_types.AnnotatedTrajectory] | str,
+        prompts: list[Prompt],
+    ) -> list[Prompt]:
+        """Allow calling the object like: await optimizer(sessions, prompts)"""
+        return await self.ainvoke(
+            prompt_types.MultiPromptOptimizerInput(sessions=sessions, prompts=prompts)
+        )
 
 
 def create_multi_prompt_optimizer(
@@ -253,70 +398,37 @@ def create_multi_prompt_optimizer(
     *,
     kind: typing.Literal["gradient", "prompt_memory", "metaprompt"] = "gradient",
     config: typing.Optional[dict] = None,
-) -> typing.Callable[
-    [
-        list[list[AnyMessage]]
-        | list[AnyMessage]
-        | list[tuple[list[AnyMessage], str]]
-        | str,
-        list[Prompt],
-    ],
-    typing.Awaitable[list[Prompt]],
-]:
-    """Create an optimizer for multiple prompts with shared context.
+) -> Runnable[prompt_types.MultiPromptOptimizerInput, list[Prompt]]:
+    """Create a multi-prompt optimizer that improves prompt effectiveness.
 
-    This function creates an optimizer that can improve multiple related prompts
-    while maintaining consistency and leveraging shared context between them.
-    It's particularly useful for optimizing chains of prompts or prompt templates
-    that work together in a multi-agent or multi-step system.
-
-    The optimizer analyzes the relationships and dependencies between prompts to ensure
-    they work together effectively while maintaining their distinct roles.
-
-    Args:
-        model (Union[str, BaseChatModel]): The language model to use for optimization.
-            Can be a model name string or a BaseChatModel instance.
-        kind (Literal["gradient", "prompt_memory", "metaprompt"]): The optimization
-            strategy to use. Each strategy offers different benefits:
-            - gradient: Iteratively improves while maintaining consistency
-            - prompt_memory: Uses successful prompt combinations
-            - metaprompt: Learns optimal patterns for multi-step tasks
-            Defaults to "gradient".
-        config (Optional[OptimizerConfig]): Configuration options for the optimizer.
-            The type depends on the chosen strategy:
-            - GradientOptimizerConfig for kind="gradient"
-            - PromptMemoryConfig for kind="prompt_memory"
-            - MetapromptOptimizerConfig for kind="metaprompt"
-            Defaults to None.
+    This function creates an optimizer that can analyze and improve prompts for better
+    performance with language models. It supports multiple optimization strategies to
+    iteratively enhance prompt quality and effectiveness.
 
     !!! example "Examples"
-        Basic multi-prompt optimization:
+        Basic prompt optimization:
         ```python
         from langmem import create_multi_prompt_optimizer
 
         optimizer = create_multi_prompt_optimizer("anthropic:claude-3-5-sonnet-latest")
 
+        # Example conversation with feedback
+        conversation = [
+            {"role": "user", "content": "Tell me about the solar system"},
+            {"role": "assistant", "content": "The solar system consists of..."},
+        ]
+        feedback = {"clarity": "needs more structure"}
+
+        # Use conversation history to improve the prompts
+        sessions = [(conversation, feedback)]
         prompts = [
             {"name": "research", "prompt": "Research the given topic thoroughly"},
             {"name": "summarize", "prompt": "Summarize the research findings"},
         ]
-
-        # Example conversation showing basic usage
-        conversation = [
-            {"role": "user", "content": "Tell me about renewable energy"},
-            {"role": "assistant", "content": "Here's what I found in my research..."},
-            {
-                "role": "assistant",
-                "content": "To summarize the key points about renewable energy...",
-            },
-        ]
-
-        # Optimize both prompts together
-        # Feedback is optional; without it, the optimizer seeks to infer feedback directly from the converstaion
-        sessions = [(conversation, {})]
-        better_prompts = await optimizer(sessions, prompts)
-        print(better_prompts[0]["prompt"])
-        # Output: 'Conduct comprehensive research on the topic...'
+        better_prompts = await optimizer.ainvoke(
+            {"sessions": sessions, "prompts": prompts}
+        )
+        print(better_prompts)
         ```
 
         Optimizing with conversation feedback:
@@ -327,145 +439,87 @@ def create_multi_prompt_optimizer(
             "anthropic:claude-3-5-sonnet-latest", kind="prompt_memory"
         )
 
-        # Example conversation showing how prompts work together
+        # Conversation with feedback about what could be improved
         conversation = [
-            {"role": "user", "content": "Tell me about quantum computing"},
-            {"role": "assistant", "content": "Here's my research..."},
-            {"role": "assistant", "content": "To summarize the key points..."},
+            {"role": "user", "content": "How do I write a bash script?"},
+            {"role": "assistant", "content": "Let me explain bash scripting..."},
         ]
-        feedback = {
-            "research": "Include more technical details",
-            "summary": "Make it more accessible",
-        }
+        feedback = "Response should include a code example"
 
-        # Optimize both prompts based on the conversation
-        sessions = [(conversation, feedback)]
-        improved_prompts = await optimizer(sessions, prompts)
+        # Use the conversation and feedback to improve the prompts
+        sessions = [(conversation, {"feedback": feedback})]
+        prompts = [
+            {"name": "explain", "prompt": "Explain the concept"},
+            {"name": "example", "prompt": "Provide a practical example"},
+        ]
+        better_prompts = await optimizer(sessions, prompts)
         ```
 
-        Complex multi-agent optimization:
+        Meta-prompt optimization for complex tasks:
         ```python
         from langmem import create_multi_prompt_optimizer
 
         optimizer = create_multi_prompt_optimizer(
             "anthropic:claude-3-5-sonnet-latest",
             kind="metaprompt",
-            config={"max_reflection_steps": 3},
+            config={"max_reflection_steps": 3, "min_reflection_steps": 1},
         )
 
-        # Define a chain of prompts for a complex task
-        prompts = [
-            {"name": "planner", "prompt": "Plan the analysis steps"},
-            {"name": "researcher", "prompt": "Gather information for each step"},
-            {"name": "analyzer", "prompt": "Analyze the gathered information"},
-            {"name": "writer", "prompt": "Write the final report"},
-        ]
-
-        # Example conversation showing the full workflow
+        # Complex conversation that needs better structure
         conversation = [
-            {"role": "user", "content": "Analyze the impact of AI on healthcare"},
-            {"role": "assistant", "content": "Here's our analysis plan..."},
-            {"role": "assistant", "content": "Research findings for each area..."},
-            {"role": "assistant", "content": "Analysis of the implications..."},
-            {"role": "assistant", "content": "Final report on AI in healthcare..."},
+            {"role": "user", "content": "Explain quantum computing"},
+            {"role": "assistant", "content": "Quantum computing uses..."},
         ]
-        feedback = {"organization": "needs better coordination between steps"}
+        feedback = "Need better organization and concrete examples"
 
-        # Optimize the entire prompt chain
+        # Optimize with meta-learning
         sessions = [(conversation, feedback)]
-        optimized_chain = await optimizer(sessions, prompts)
+        prompts = [
+            {"name": "concept", "prompt": "Explain quantum concepts"},
+            {"name": "application", "prompt": "Show practical applications"},
+            {"name": "example", "prompt": "Give concrete examples"},
+        ]
+        improved_prompts = await optimizer(sessions, prompts)
         ```
 
+    !!! warning
+        The optimizer may take longer to run with more complex strategies:
+        - gradient: Fastest but may need multiple iterations
+        - prompt_memory: Medium speed, depends on conversation history
+        - metaprompt: Slowest but most thorough optimization
+
     !!! tip
-        For effective multi-prompt optimization, provide useful when_to_update instructions to help
-        the optimizer know how the prompts relate
+        For best results:
+        1. Choose the optimization strategy based on your needs:
+           - gradient: Good for iterative improvements
+           - prompt_memory: Best when you have example conversations
+           - metaprompt: Ideal for complex, multi-step tasks
+        2. Provide specific feedback in conversation sessions
+        3. Use config options to control optimization behavior
+        4. Start with simpler strategies and only use more complex
+           ones if needed
 
-
+    Args:
+        model (Union[str, BaseChatModel]): The language model to use for optimization.
+            Can be a model name string or a BaseChatModel instance.
+        kind (Literal["gradient", "prompt_memory", "metaprompt"]): The optimization
+            strategy to use. Each strategy offers different benefits:
+            - gradient: Iteratively improves through reflection
+            - prompt_memory: Uses successful past prompts
+            - metaprompt: Learns optimal patterns via meta-learning
+            Defaults to "gradient".
+        config (Optional[OptimizerConfig]): Configuration options for the optimizer.
+            The type depends on the chosen strategy:
+                - GradientOptimizerConfig for kind="gradient"
+                - PromptMemoryConfig for kind="prompt_memory"
+                - MetapromptOptimizerConfig for kind="metaprompt"
+            Defaults to None.
 
     Returns:
-        Callable: An async function that takes multiple prompts or messages and returns
-        optimized versions.
+        MultiPromptOptimizer: A Runnable that takes conversation sessions and prompts
+            and returns optimized versions.
     """
-    _optimizer = create_prompt_optimizer(model, kind=kind, config=config)  # type: ignore
+    return MultiPromptOptimizer(model, kind=kind, config=config)
 
-    @ls.traceable
-    async def process_multi_prompt_sessions(
-        sessions: (
-            list[list[AnyMessage]]
-            | list[AnyMessage]
-            | list[tuple[list[AnyMessage], str]]
-            | str
-        ),
-        prompts: list[Prompt],
-    ) -> list[Prompt]:
-        choices = [p["name"] for p in prompts]
-        sessions_str = utils.format_sessions(sessions)
-        if (
-            isinstance(prompts, list)
-            and len(prompts) == 1
-            and prompts[0].get("when_to_update") is None
-        ):
-            updated_prompt = await _optimizer(sessions, prompts[0])
-            return [
-                {
-                    **prompts[0],
-                    "prompt": updated_prompt,
-                }
-            ]
 
-        class Classify(BaseModel):
-            """Classify which prompts merit updating for this conversation."""
-
-            reasoning: str = Field(description="Reasoning for which prompts to update.")
-
-            which: list[str] = Field(
-                description=f"List of prompt names that should be updated. Must be among {choices}"
-            )
-
-            @model_validator(mode="after")
-            def validate_choices(self) -> "Classify":
-                invalid = set(self.which) - set(choices)
-                if invalid:
-                    raise ValueError(
-                        f"Invalid choices: {invalid}. Must be among: {choices}"
-                    )
-                return self
-
-        classifier = create_extractor(model, tools=[Classify], tool_choice="Classify")
-        prompt_joined_content = "".join(
-            f"{p['name']}: {p['prompt']}\n" for p in prompts
-        )
-        classification_prompt = f"""Analyze the following sessions and decide which prompts 
-ought to be updated to improve the performance on future sessions:
-
-{sessions_str}
-
-Below are the prompts being optimized:
-{prompt_joined_content}
-
-Return JSON with "which": [...], listing the names of prompts that need updates."""
-        result = await classifier.ainvoke(classification_prompt)
-        to_update = result["responses"][0].which
-
-        which_to_update = [p for p in prompts if p["name"] in to_update]
-
-        # For each chosen prompt, call the single-prompt optimizer
-        updated_results = await asyncio.gather(
-            *[_optimizer(sessions, prompt=p) for p in which_to_update]
-        )
-
-        # Merge updated prompt text back into original prompt objects
-        updated_map = {
-            p["name"]: new_text for p, new_text in zip(which_to_update, updated_results)
-        }
-
-        final_list = []
-        for p in prompts:
-            if p["name"] in updated_map:
-                final_list.append({**p, "prompt": updated_map[p["name"]]})
-            else:
-                final_list.append(p)
-
-        return final_list
-
-    return process_multi_prompt_sessions
+__all__ = ["create_prompt_optimizer", "create_multi_prompt_optimizer"]

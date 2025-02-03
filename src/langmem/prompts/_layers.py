@@ -1,3 +1,4 @@
+# This is not considered a part of the public API right now and may change at any time.
 import asyncio
 import functools
 import re

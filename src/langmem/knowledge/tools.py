@@ -13,7 +13,7 @@ def create_manage_memory_tool(
     instructions: str = "",
     namespace_prefix: tuple[str, ...] | utils.NamespaceTemplate = (
         "memories",
-        "{user_id}",
+        "{langgraph_user_id}",
     ),
     kind: typing.Literal["single", "multi"] = "multi",
 ):
@@ -78,7 +78,7 @@ def create_manage_memory_tool(
         instructions (str, optional): Custom instructions for when to use the memory tool.
             Defaults to a predefined set of guidelines for proactive memory management.
         namespace_prefix (Union[tuple[str, ...], NamespaceTemplate], optional): Storage namespace
-            structure for organizing memories. Defaults to ("memories", "{user_id}").
+            structure for organizing memories. Defaults to ("memories", "{langgraph_user_id}").
         kind (Literal["single", "multi"], optional): Whether to support single or multiple
             memories per conversation. Defaults to "multi".
 
@@ -141,7 +141,7 @@ _MEMORY_SEARCH_INSTRUCTIONS = ""
 
 def create_search_memory_tool(
     instructions: str = _MEMORY_SEARCH_INSTRUCTIONS,
-    namespace_prefix: tuple[str, ...] = ("memories", "{user_id}"),
+    namespace_prefix: tuple[str, ...] = ("memories", "{langgraph_user_id}"),
 ):
     namespacer = utils.NamespaceTemplate(namespace_prefix)
 

@@ -1,3 +1,6 @@
+import typing
+
+from langchain_core.messages import AnyMessage
 from typing_extensions import Required, TypedDict
 
 
@@ -18,7 +21,25 @@ class Prompt(TypedDict, total=False):
             to other prompts. Useful in multi-prompt optimization to maintain dependencies.
             For example: "Update after 'extract' prompt to maintain consistent terminology"
     """
+
     name: Required[str]
     prompt: Required[str]
     update_instructions: str | None
     when_to_update: str | None
+
+
+class AnnotatedTrajectory(typing.NamedTuple):
+    messages: typing.Sequence[AnyMessage]
+    feedback: dict[str, str] | str | None = None
+
+
+class OptimizerInput(TypedDict):
+    sessions: typing.Sequence[AnnotatedTrajectory] | str
+    prompt: str | Prompt
+
+
+class MultiPromptOptimizerInput(TypedDict):
+    """Input for the multi-prompt optimizer."""
+
+    sessions: typing.Sequence[AnnotatedTrajectory] | str
+    prompts: list[Prompt]

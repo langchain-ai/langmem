@@ -1,4 +1,4 @@
-.PHONY: lint-docs format-docs build-docs serve-docs serve-clean-docs clean-docs codespell build-typedoc
+.PHONY: lint-docs format-docs build-docs serve-docs serve-clean-docs clean-docs codespell build-typedoc doctest
 
 build-docs:
 	uv run --with-editable . python -m mkdocs build --clean -f docs/mkdocs.yml --strict
@@ -13,6 +13,9 @@ serve-docs: build-typedoc
 format-docs:
 	uv run ruff format docs/docs
 	uv run ruff check --fix docs/docs
+
+doctest:
+	uv run --with-editable . python -m pytest tests/test_docstring_examples.py -vvv
 
 
 format:

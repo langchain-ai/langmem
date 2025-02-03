@@ -351,8 +351,3 @@ How memories are accessed:
 | ------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------ | ----------------------------------------------------------- |
 | Always-On (System Prompt) | Critical context included in every interaction | - Core rules<br>- User preferences<br>- Session state                    | Use `create_prompt_optimizer` with memory integration       |
 | Associative (Search)      | Contextually searched when needed              | - Historical conversations<br>- Specific knowledge<br>- Past experiences | Use `create_search_memory_tool` or `create_memory_searcher` |
-
-## Reflection Quickstart
-
-TjjODO.
-
