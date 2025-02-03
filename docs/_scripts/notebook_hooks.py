@@ -113,8 +113,6 @@ def on_page_markdown(markdown: str, page: Page, **kwargs: Dict[str, Any]):
         logger.info("Processing Jupyter notebook: %s", page.file.src_path)
         markdown = convert_notebook(page.file.abs_src_path)
 
-    # Append API reference links to code blocks
     markdown = update_markdown_with_imports(markdown)
-    # Apply highlight comments to code blocks
     markdown = _highlight_code_blocks(markdown)
     return markdown

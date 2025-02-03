@@ -10,6 +10,8 @@ from pydantic import BaseModel, Field, model_validator
 
 
 class NamespaceTemplate:
+    """Utility for templating namespace strings from configuration."""
+
     __slots__ = ("template", "vars")
 
     def __init__(self, template: tuple[str, ...]):

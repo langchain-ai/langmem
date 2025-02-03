@@ -61,11 +61,13 @@ model = init_chat_model("model_name").bind_tools(tools)
 
 LangGraph-compatible components for production deployment:
 
-- [`langmem.graphs.semantic`]: Extract and store memories from conversations
+- \[`langmem.graphs.semantic`\]: Extract and store memories from conversations
 
   ```python
   Input = {
-      "messages": list[tuple[list[Message], dict]],  # Messages or (messages, feedback) pairs
+      "messages": list[
+          tuple[list[Message], dict]
+      ],  # Messages or (messages, feedback) pairs
       "schemas": None | list[dict] | dict,  # Optional schema definitions to extract
       "namespace": tuple[str, ...] | None,  # Optional namespace for memories
   }
@@ -93,8 +95,6 @@ LangGraph-compatible components for production deployment:
   Output = {
       "optimized_prompts": list[Prompt],
   }
-
-
   ```
 
 These graphs can be deployed directly on the LangGraph platform. See the [hosted service example](#example-using-the-hosted-memory-service) below for usage.
@@ -235,7 +235,6 @@ results = await client.runs.wait(
 )
 ```
 
-
 #### Store semantic memories with the hosted service
 
 The hosted service also provides a graph that can be used to extract and store semantic knowledge from conversations:
@@ -272,82 +271,229 @@ results = await client.runs.wait(
 memories = await client.store.search_items((), query="UI preferences")
 ```
 
-
 ## Conceptual guide
 
-Below is a high-level conceptual overview of a way to think about memory management.
+LangMem provides utilities for managing different types of long-term memory in AI systems. This guide explores the key concepts and patterns for implementing memory effectively.
 
-### 1. Formation Pattern
+## Memory Types
 
-How memories are created:
+Like human memory systems, AI agents can utilize different types of memory for different purposes:
 
-| Pattern                   | Description                                        | Best For                                                                           | Tools                                                          |
-| ------------------------- | -------------------------------------------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| Conscious (Agent Tools)   | Agent actively decides to save during conversation | - Direct user feedback<br>- Explicit rules and preferences<br>- Teaching the agent | - `create_manage_memory_tool`<br>- `create_search_memory_tool` |
-| Subconscious (Background) | Separate LLM analyzes conversations/trajectories   | - Pattern discovery<br>- Learning from experience<br>- Complex relationships       | - `create_memory_enricher`<br>- `create_memory_store_enricher` |
+### Semantic Memory
 
-Example of conscious memory formation:
+Semantic memory stores facts and knowledge that can be used to ground agent responses. In LangMem, semantic memories can be managed in two ways:
+
+1. **Profile Pattern**
+
+   - A single, continuously updated JSON document containing well-scoped information
+   - Best for: User preferences, system settings, and current state
+
+   ```python
+   from pydantic import BaseModel
+
+
+   class UserPreferences(BaseModel):
+       preferences: dict[str, str]
+       settings: dict[str, str]
+
+
+   enricher = create_memory_enricher(
+       "claude-3-5-sonnet-latest",
+       schemas=[UserPreferences],
+       instructions="Extract user preferences and settings",
+       enable_inserts=True,
+       enable_deletes=False,
+   )
+   ```
+
+1. **Collection Pattern**
+
+   - A set of discrete memory documents that grow over time
+
+   ```python
+   memory_tool = create_manage_memory_tool(
+       instructions="Save important user preferences and context",
+       namespace_prefix=("user", "experiences"),
+       kind="multi",
+   )
+   ```
+
+### Episodic Memory
+
+Episodic memory helps agents recall past events and experiences:
 
 ```python
-from langmem import create_manage_memory_tool, create_search_memory_tool
+from langmem.graphs.semantic import MemoryGraph
 
-tools = {
-    "manage_memory": create_manage_memory_tool(),
-    "search_memory": create_search_memory_tool(),
-}
-model = init_chat_model("model_name").bind_tools(tools.values())
-```
-
-Example of subconscious memory formation:
-
-```python
-from langmem import create_memory_store_enricher
-
-enricher = create_memory_store_enricher(
-    "model_name", schemas=[UserProfile], enable_inserts=True
+memory_graph = MemoryGraph(
+    store=store, extractor="claude-3-5-sonnet-latest", indexing={"embed": embed}
 )
-memories = await enricher.manage_memories(conversation)
+
+# Store conversation history
+await memory_graph.arun(
+    {
+        "messages": [
+            {"role": "user", "content": "I prefer dark mode"},
+            {"role": "assistant", "content": "I'll remember that preference"},
+        ],
+        "namespace": ("user123", "conversations"),
+        "schemas": None,  # Optional schema for structured extraction
+    }
+)
 ```
 
-### 2. Storage Pattern
+### Procedural Memory
 
-How memories are structured:
-
-| Pattern             | Description                         | Best For                                                                 | Implementation                                    |
-| ------------------- | ----------------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------- |
-| Constrained Profile | Single schema, continuously updated | - User preferences<br>- System settings<br>- Current state               | Use `create_memory_enricher` with defined schemas |
-| Event Stream        | Expansive list of discrete memories | - Conversation history<br>- Learning experiences<br>- Evolving knowledge | Use `create_manage_memory_tool` with kind="multi" |
-
-Example of constrained profile:
+Procedural memory helps agents remember how to perform tasks through system prompts and instructions:
 
 ```python
-from pydantic import BaseModel
-from langmem import create_memory_enricher
+from langmem.graphs.prompts import PromptGraph
 
+prompt = {
+    "name": "main",
+    "prompt": "You are a helpful assistant. Current rules:\n{instructions}",
+    "when_to_update": "When user feedback indicates unclear instructions",
+    "update_instructions": "Improve clarity while maintaining core functionality",
+}
 
-class UserProfile(BaseModel):
-    preferences: dict[str, str]
-    settings: dict[str, Any]
-
-
-enricher = create_memory_enricher("model_name", schemas=[UserProfile], kind="single")
+prompt_graph = PromptGraph()
+optimized = await prompt_graph.arun(
+    {
+        "prompts": [prompt],
+        "threads": [(conversation, "Make instructions more specific")],
+    }
+)
 ```
 
-Example saving semantic facts
+## Writing Memories
+
+LangMem supports two primary approaches to memory formation:
+
+### Conscious memory formation
+
+Agents can actively manage memories "in the hot path" by calling tools to save, update, and delete memories.
 
 ```python
+from langgraph.prebuilt import create_react_agent
 from langmem import create_manage_memory_tool
 
 memory_tool = create_manage_memory_tool(
-    kind="multi", namespace_prefix=("user", "experiences")
+    instructions="Save important user preferences and context",
+    namespace_prefix=("user", "preferences"),
+    kind="multi",
+)
+agent = create_react_agent("anthropic:claude-3-5-sonnet-latest", tool=[memory_tool])
+
+agent.invoke("Did you know I hold the world record for most stubbed toes in one day?")
+```
+
+### Background memory formation
+
+Memory formation happens asynchronously through reflection:
+
+```python
+enricher = create_memory_store_enricher(
+    "claude-3-5-sonnet-latest",
+    schemas=[UserProfile],
+    enable_background=True,
+    query_model="claude-3-5-haiku-latest",  # Faster model for searches
+    query_limit=5,
+)
+
+async for conversation in message_stream:
+    await enricher.amanage_memories(conversation)
+```
+
+## Long-term storage
+
+LangMem's lowest-level primitives are purely **functional** - they take trajectories and current memory state (prompts or similar memories) as input and return updated memory state. These primitives form the foundation for higher-level utilities that integrate with LangGraph for persistent storage.
+
+For storage, LangMem uses LangGraph's `BaseStore` interface, which provides a hierarchical document store with semantic search capabilities. Memories are organized using:
+
+1. **Namespaces**: Logical groupings similar to directories (e.g., `(user_id, app_context)`)
+1. **Keys**: Unique identifiers within namespaces (like filenames)
+1. **Storage**: JSON documents with metadata and vector embeddings
+
+```python
+def embed(texts: list[str]) -> list[list[float]]:
+    # Replace with actual embedding function
+    return [[1.0, 2.0] * len(texts)]
+
+
+store = InMemoryStore(index={"embed": embed, "dims": 2})
+namespace = ("user123", "preferences")
+store.put(
+    namespace,
+    "ui_settings",
+    {"rules": ["User prefers dark mode", "User likes minimalist interfaces"]},
 )
 ```
 
-### 3. Retrieval Pattern
+While you can work with `BaseStore` directly, LangMem provides higher-level primitives (memory tools, stateful utilities, graphs) that manage memories on behalf of your agent, handling the storage operations automatically.
 
-How memories are accessed:
+## Implementation Patterns
 
+<<<<<<< Updated upstream
 | Pattern                   | Description                                    | When to Use                                                              | Implementation                                              |
 | ------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------ | ----------------------------------------------------------- |
 | Always-On (System Prompt) | Critical context included in every interaction | - Core rules<br>- User preferences<br>- Session state                    | Use `create_prompt_optimizer` with memory integration       |
 | Associative (Search)      | Contextually searched when needed              | - Historical conversations<br>- Specific knowledge<br>- Past experiences | Use `create_search_memory_tool` or `create_memory_searcher` |
+=======
+### Profile-Based Pattern
+
+```python
+# 1. Define schema
+class UserPreferences(BaseModel):
+    dietary_restrictions: list[str]
+    communication_style: str
+    ui_preferences: dict[str, str]
+
+
+# 2. Configure enricher with storage
+store = InMemoryStore(index={"embed": embed, "dims": 384})
+enricher = create_memory_store_enricher(
+    "claude-3-5-sonnet-latest",
+    schemas=[UserPreferences],
+    store=store,
+    instructions="Extract and maintain user preferences",
+    namespace_prefix=("user", "profile"),
+)
+
+# 3. Process conversations
+await enricher.amanage_memories(
+    [{"role": "user", "content": "I'm vegetarian and prefer formal communication"}]
+)
+```
+
+### Collection-Based Pattern
+
+```python
+# 1. Set up storage and tools
+store = InMemoryStore(index={"embed": embed, "dims": 384})
+memory_tool = create_manage_memory_tool(
+    store=store, kind="multi", namespace_prefix=("user", "experiences")
+)
+
+# 2. Save discrete memories
+await memory_tool.ainvoke(
+    {
+        "content": "User prefers dark mode",
+        "context": "UI preferences discussion",
+        "timestamp": "2025-02-03",
+    }
+)
+
+# 3. Search memories
+search_tool = create_search_memory_tool(
+    store=store, namespace_prefix=("user", "experiences")
+)
+results = await search_tool.ainvoke({"query": "What are the user's UI preferences?"})
+```
+
+This architecture allows you to make deliberate choices about:
+
+1. **What** to remember (memory types)
+1. **When** to remember (update timing)
+1. **How** to remember (storage patterns)
+1. **When** to retrieve (access patterns)
+>>>>>>> Stashed changes

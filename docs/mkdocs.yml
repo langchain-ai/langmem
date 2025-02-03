@@ -59,6 +59,7 @@ plugins:
   - redirects:
       redirect_maps:
   - mkdocstrings:
+      custom_templates: templates
       handlers:
         python:
           import:
@@ -91,9 +92,7 @@ plugins:
 nav:
   - Home:
     - Introduction: index.md
-  
-  - API reference:
-    - Refs: reference/index.md
+    - API Reference: reference/index.md
 
 markdown_extensions:
   - abbr
@@ -175,3 +174,5 @@ validation:
   # https://www.mkdocs.org/user-guide/configuration/
   absolute_links: warn
   unrecognized_links: warn
+extra_templates:
+  - templates

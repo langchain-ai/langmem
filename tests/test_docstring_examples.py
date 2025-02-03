@@ -88,14 +88,44 @@ def get_module_functions(module_path: str) -> Dict[str, Any]:
         return {}
 
 
+def extract_readme_examples():
+    """Extract Python code blocks from README.md."""
+    readme_path = Path(__file__).parent.parent / "README.md"
+    if not readme_path.exists():
+        logger.warning(f"README.md not found at {readme_path}")
+        return []
+
+    with open(readme_path, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    code_blocks = extract_code_blocks(content)
+    test_cases = []
+    for i, block in enumerate(code_blocks):
+        test_id = f"README.md::example_{i}"
+        logger.info(f"Adding README test case: {test_id}")
+        test_cases.append(
+            pytest.param(
+                None,  # No module
+                "README.md",  # Function name placeholder
+                [block],  # Single example
+                id=test_id,
+            )
+        )
+    return test_cases
+
+
 def collect_docstring_tests():
-    """Collect all docstring Python code blocks from the 'src/' tree."""
+    """Collect all docstring Python code blocks from the 'src/' tree and README.md."""
     src_dir = Path(__file__).parent.parent / "src"
     logger.info(f"Scanning for Python files in {src_dir}")
     py_files = list(src_dir.rglob("*.py"))
     logger.info(f"Found {len(py_files)} Python files")
 
     test_cases = []
+
+    test_cases.extend(extract_readme_examples())
+
+    # Add docstring examples
     for py_file in py_files:
         logger.debug(f"Processing file: {py_file}")
         funcs = get_module_functions(str(py_file))
@@ -119,20 +149,27 @@ def collect_docstring_tests():
 @pytest.mark.parametrize("module_name,func_name,code_blocks", collect_docstring_tests())
 @pytest.mark.asyncio_cooperative
 @pytest.mark.langsmith
-async def test_docstring_example(module_name: str, func_name: str, code_blocks: List[str]):
+async def test_docstring_example(
+    module_name: str, func_name: str, code_blocks: List[str]
+):
     """Execute all docstring code blocks from a function in sequence, maintaining state."""
-    # Dynamically import the module
-    module = importlib.import_module(module_name)
+    # For README examples, we don't need to import anything
+    if module_name is None:
+        obj = None
+        module = None
+    else:
+        # Dynamically import the module
+        module = importlib.import_module(module_name)
 
-    # Find the function object inside the module
-    obj = module
-    func_name_ = (
-        func_name[len(obj.__name__) :].lstrip(".")
-        if func_name.startswith(obj.__name__)
-        else func_name
-    )
-    for part in func_name_.split("."):
-        obj = getattr(obj, part)
+        # Find the function object inside the module
+        obj = module
+        func_name_ = (
+            func_name[len(obj.__name__) :].lstrip(".")
+            if func_name.startswith(obj.__name__)
+            else func_name
+        )
+        for part in func_name_.split("."):
+            obj = getattr(obj, part)
 
     # Prepare a fresh namespace that will be shared across all code blocks
     namespace = {
@@ -157,8 +194,8 @@ async def _test_docstring():
                 exec(wrapped_code, namespace, namespace)
                 await namespace["_test_docstring"]()
             else:
-                exec(code_block, namespace, namespace) 
-            
+                exec(code_block, namespace, namespace)
+
             # Log what was added to namespace
         except Exception as e:
             logger.error(f"Error executing code block {i} for {func_name}: {e}")

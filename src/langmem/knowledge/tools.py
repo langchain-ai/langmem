@@ -10,8 +10,12 @@ from langmem import utils
 
 
 def create_manage_memory_tool(
-    instructions: str = "",
-    namespace_prefix: tuple[str, ...] | utils.NamespaceTemplate = (
+    instructions: str = """Proactively call this tool when you:
+1. Identify a new USER preference.
+2. Receive an explicit USER request to remember something or otherwise alter your behavior.
+3. Are working and want to record important context.
+4. Identify that an existing MEMORY is incorrect or outdated.""",
+    namespace_prefix: tuple[str, ...]  = (
         "memories",
         "{langgraph_user_id}",
     ),
@@ -23,8 +27,16 @@ def create_manage_memory_tool(
     persistent memories that carry over between conversations. The tool helps maintain
     context and user preferences across sessions.
 
+    Args:
+        instructions: Custom instructions for when to use the memory tool.
+            Defaults to a predefined set of guidelines for proactive memory management.
+        namespace_prefix: Storage namespace
+            structure for organizing memories.
+        kind: Whether to support single or multiple
+            memories per conversation.
+
     Tip:
-        This tool connects with the LangGraph BaseStore configured in your graph or entrypoint.
+        This tool connects with the LangGraph [BaseStore](https://langchain-ai.github.io/langgraph/reference/store/#langgraph.store.base.BaseStore) configured in your graph or entrypoint.
         It will not work if you do not provide a store.
 
     !!! example "Examples"
@@ -74,6 +86,7 @@ def create_manage_memory_tool(
         # Output: 'updated memory 123e4567-e89b-12d3-a456-426614174000'
         ```
 
+<<<<<<< Updated upstream
     Args:
         instructions (str, optional): Custom instructions for when to use the memory tool.
             Defaults to a predefined set of guidelines for proactive memory management.
@@ -81,17 +94,14 @@ def create_manage_memory_tool(
             structure for organizing memories. Defaults to ("memories", "{langgraph_user_id}").
         kind (Literal["single", "multi"], optional): Whether to support single or multiple
             memories per conversation. Defaults to "multi".
+=======
+    
+>>>>>>> Stashed changes
 
     Returns:
         memory_tool (Tool): A decorated async function that can be used as a tool for memory management.
             The tool supports creating, updating, and deleting memories with proper validation.
     """
-    if not instructions:
-        instructions = """Proactively call this tool when you:
-1. Identify a new USER preference.
-2. Receive an explicit USER request to remember something or otherwise alter your behavior.
-3. Are working and want to record important context.
-4. Identify that an existing MEMORY is incorrect or outdated."""
     namespacer = (
         utils.NamespaceTemplate(namespace_prefix)
         if isinstance(namespace_prefix, tuple)
