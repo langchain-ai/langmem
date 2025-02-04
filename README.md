@@ -1,6 +1,7 @@
 # LangMem
 
 LangMem exports utilities for extracting, updating, generalizing, storing, and retrieving information from interactions in LLM applications. It offers:
+
 1. Pure functions to extract and enrich memories from trajectories & interactions
 2. Configurable memory managers and agent tools that integrate with LangGraph's storage layer
 3. Deployable entrypoints that let you build and deploy memory systems in LangGraph Platform
