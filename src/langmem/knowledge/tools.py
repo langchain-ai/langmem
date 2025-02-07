@@ -284,7 +284,7 @@ def create_manage_memory_tool(
 
         if action in ("delete", "update") and not id:
             raise ValueError(
-                "You must provide a MEMORY ID when deleting or updating a MEMORY."
+                "You must provide a MEMORY ID when deleting or updating a MEMORY. Please try again, including the id argument."
             )
         namespace = namespacer()
         if action == "delete":
