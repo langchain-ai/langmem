@@ -47,7 +47,7 @@ class Memory(BaseModel):
 
     content: str = Field(
         description="The memory as a well-written, standalone episode/fact/note/preference/etc."
-        " Refer to the user's instructions for more information the prefered memory organization."
+        " Refer to the user's instructions for more information the preferred memory organization."
     )
 
 
