@@ -78,6 +78,27 @@ def create_prompt_optimizer(
     performance with language models. It supports multiple optimization strategies to
     iteratively enhance prompt quality and effectiveness.
 
+    Args:
+        model (Union[str, BaseChatModel]): The language model to use for optimization.
+            Can be a model name string or a BaseChatModel instance.
+        kind (Literal["gradient", "prompt_memory", "metaprompt"]): The optimization
+            strategy to use. Each strategy offers different benefits:
+
+            - gradient: Separates concerns between finding areas for improvement
+                and recommending updates
+            - prompt_memory: Simple single-shot metaprompt
+            - metaprompt: Supports reflection but each step is a single LLM call.
+        config (Optional[OptimizerConfig]): Configuration options for the optimizer.
+            The type depends on the chosen strategy:
+
+                - GradientOptimizerConfig for kind="gradient"
+                - PromptMemoryConfig for kind="prompt_memory"
+                - MetapromptOptimizerConfig for kind="metaprompt"
+            Defaults to None.
+
+    Returns:
+        optimizer (PromptOptimizerProto): A callable that takes conversation trajectories and/or prompts and returns optimized versions.
+
     ## Optimization Strategies
 
     ### 1. Gradient Optimizer
@@ -249,27 +270,6 @@ def create_prompt_optimizer(
         3. Gradient: Most thorough but expensive
             - Highest cost (4-10 LLM calls)
             - Uses separation of concerns to extract feedback from more conversational context.
-
-    Args:
-        model (Union[str, BaseChatModel]): The language model to use for optimization.
-            Can be a model name string or a BaseChatModel instance.
-        kind (Literal["gradient", "prompt_memory", "metaprompt"]): The optimization
-            strategy to use. Each strategy offers different benefits:
-
-            - gradient: Separates concerns between finding areas for improvement
-                and recommending updates
-            - prompt_memory: Simple single-shot metaprompt
-            - metaprompt: Supports reflection but each step is a single LLM call.
-        config (Optional[OptimizerConfig]): Configuration options for the optimizer.
-            The type depends on the chosen strategy:
-
-                - GradientOptimizerConfig for kind="gradient"
-                - PromptMemoryConfig for kind="prompt_memory"
-                - MetapromptOptimizerConfig for kind="metaprompt"
-            Defaults to None.
-
-    Returns:
-        optimizer (PromptOptimizerProto): A callable that takes conversation trajectories and/or prompts and returns optimized versions.
     """
     if kind == "gradient":
         return create_gradient_prompt_optimizer(model, config)  # type: ignore
@@ -495,6 +495,26 @@ def create_multi_prompt_optimizer(
     simultaneously using the same optimization strategy. Each prompt is optimized using
     the selected strategy (see `create_prompt_optimizer` for strategy details).
 
+    Args:
+        model (Union[str, BaseChatModel]): The language model to use for optimization.
+            Can be a model name string or a BaseChatModel instance.
+        kind (Literal["gradient", "prompt_memory", "metaprompt"]): The optimization
+            strategy to use. Each strategy offers different benefits:
+            - gradient: Iteratively improves through reflection
+            - prompt_memory: Uses successful past prompts
+            - metaprompt: Learns optimal patterns via meta-learning
+            Defaults to "gradient".
+        config (Optional[OptimizerConfig]): Configuration options for the optimizer.
+            The type depends on the chosen strategy:
+                - GradientOptimizerConfig for kind="gradient"
+                - PromptMemoryConfig for kind="prompt_memory"
+                - MetapromptOptimizerConfig for kind="metaprompt"
+            Defaults to None.
+
+    Returns:
+        MultiPromptOptimizer: A Runnable that takes conversation trajectories and prompts
+            and returns optimized versions.
+
     ```mermaid
     sequenceDiagram
         participant U as User
@@ -606,27 +626,6 @@ def create_multi_prompt_optimizer(
         ]
         improved_prompts = await optimizer(trajectories, prompts)
         ```
-
-
-    Args:
-        model (Union[str, BaseChatModel]): The language model to use for optimization.
-            Can be a model name string or a BaseChatModel instance.
-        kind (Literal["gradient", "prompt_memory", "metaprompt"]): The optimization
-            strategy to use. Each strategy offers different benefits:
-            - gradient: Iteratively improves through reflection
-            - prompt_memory: Uses successful past prompts
-            - metaprompt: Learns optimal patterns via meta-learning
-            Defaults to "gradient".
-        config (Optional[OptimizerConfig]): Configuration options for the optimizer.
-            The type depends on the chosen strategy:
-                - GradientOptimizerConfig for kind="gradient"
-                - PromptMemoryConfig for kind="prompt_memory"
-                - MetapromptOptimizerConfig for kind="metaprompt"
-            Defaults to None.
-
-    Returns:
-        MultiPromptOptimizer: A Runnable that takes conversation trajectories and prompts
-            and returns optimized versions.
     """
     return MultiPromptOptimizer(model, kind=kind, config=config)
 

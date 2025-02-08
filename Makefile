@@ -20,7 +20,7 @@ doctest:
 	@echo "Waiting for server to start..."
 	@sleep 2
 	@echo "Running tests..."
-	uv run --with-editable . python -m pytest tests/test_docstring_examples.py -vvv $(if $(k),-k "$(k)",) || (kill `cat .langgraph.pid` && rm .langgraph.pid && exit 1)
+	uv run --with-editable . python -m pytest tests/test_docstring_examples.py -vvv -n auto $(if $(k),-k "$(k)",) || (kill `cat .langgraph.pid` && rm .langgraph.pid && exit 1)
 	@echo "Cleaning up server..."
 	@kill `cat .langgraph.pid` && rm .langgraph.pid
 

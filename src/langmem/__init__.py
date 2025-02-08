@@ -1,8 +1,8 @@
 from langmem.knowledge import (
     create_manage_memory_tool,
-    create_memory_enricher,
+    create_memory_manager,
     create_memory_searcher,
-    create_memory_store_enricher,
+    create_memory_store_manager,
     create_search_memory_tool,
     create_thread_extractor,
 )
@@ -14,8 +14,8 @@ from langmem.prompts.optimization import (
 from langmem.reflection import ReflectionExecutor
 
 __all__ = [
-    "create_memory_enricher",
-    "create_memory_store_enricher",
+    "create_memory_manager",
+    "create_memory_store_manager",
     "create_manage_memory_tool",
     "create_search_memory_tool",
     "create_thread_extractor",

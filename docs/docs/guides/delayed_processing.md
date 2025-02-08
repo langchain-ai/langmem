@@ -20,10 +20,10 @@ Processing memories on every message has drawbacks:
 from langchain.chat_models import init_chat_model
 from langgraph.func import entrypoint
 from langgraph.store.memory import InMemoryStore
-from langmem import ReflectionExecutor, create_memory_store_enricher
+from langmem import ReflectionExecutor, create_memory_store_manager
 
 # Create memory manager to extract memories from conversations (1)
-memory_manager = create_memory_store_enricher(
+memory_manager = create_memory_store_manager(
     "anthropic:claude-3-5-sonnet-latest",
     namespace=("memories",),
 )
@@ -47,7 +47,7 @@ def chat(message: str):
     return response.content
 ```
 
-1. The [`create_memory_store_enricher`](../reference/memory.md#langmem.create_memory_store_enricher) creates a Runnable that extracts memories from conversations. It processes messages in OpenAI's format:
+1. The [`create_memory_store_manager`](../reference/memory.md#langmem.create_memory_store_manager) creates a Runnable that extracts memories from conversations. It processes messages in OpenAI's format:
    ```python
    {"messages": [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]}
    ```

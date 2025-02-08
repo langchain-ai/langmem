@@ -15,7 +15,7 @@ This guide shows how to automatically extract and maintain user profiles from co
 ## Basic Usage
 
 ```python
-from langmem import create_memory_enricher
+from langmem import create_memory_manager
 from pydantic import BaseModel
 from typing import Optional
 
@@ -29,16 +29,16 @@ class UserProfile(BaseModel):
 
 
 # Configure extraction
-enricher = create_memory_enricher(
+manager = create_memory_manager(
     "anthropic:claude-3-5-sonnet-latest",
-    schemas=[UserProfile],
+    schemas=[UserProfile], # (optional) customize schema (1)
     instructions="Extract user profile information",
-    enable_inserts=False,  # Profiles update in-place
+    enable_inserts=False,  # Profiles update in-place (2)
 )
 
 # First conversation
 conversation1 = [{"role": "user", "content": "I'm Alice from California"}]
-memories = enricher.invoke({"messages": conversation1})
+memories = manager.invoke({"messages": conversation1})
 print(memories[0])
 # ExtractedMemory(id='profile-1', content=UserProfile(
 #    name='Alice',
@@ -48,7 +48,7 @@ print(memories[0])
 
 # Second conversation updates existing profile
 conversation2 = [{"role": "user", "content": "I speak Spanish too!"}]
-update = enricher.invoke({"messages": conversation2, "existing": memories})
+update = manager.invoke({"messages": conversation2, "existing": memories})
 print(update[0])
 # ExtractedMemory(id='profile-1', content=UserProfile(
 #    name='Alice',
@@ -65,21 +65,21 @@ print(update[0])
 
 ## With LangGraph's Long-term Memory Store
 
-To maintain profiles across conversations, use `create_memory_store_enricher`:
+To maintain profiles across conversations, use `create_memory_store_manager`:
 
 ```python
 from langchain.chat_models import init_chat_model
 from langgraph.func import entrypoint
 from langgraph.store.memory import InMemoryStore
 from langgraph.config import get_config
-from langmem import create_memory_store_enricher
+from langmem import create_memory_store_manager
 
 # Set up store and models (1)
 store = InMemoryStore()
 my_llm = init_chat_model("anthropic:claude-3-5-sonnet-latest")
 
 # Create profile manager (2)
-enricher = create_memory_store_enricher(
+manager = create_memory_store_manager(
     "anthropic:claude-3-5-sonnet-latest",
     namespace=("users", "{user_id}", "profile"),  # Isolate profiles by user
     schemas=[UserProfile],
@@ -111,7 +111,7 @@ def chat(messages: list):
     ])
 
     # Update profile with any new information
-    enricher.invoke({"messages": messages})
+    manager.invoke({"messages": messages})
     return response
 
 # Example usage
@@ -131,15 +131,15 @@ print(store.search(("users", "user-123", "profile")))
 1. For production, use [`AsyncPostgresStore`](https://langchain-ai.github.io/langgraph/reference/store/#langgraph.store.postgres.AsyncPostgresStore) instead of `InMemoryStore`
 
 2. The namespace pattern lets you organize profiles by:
-   ```python
-   # Individual users
-   ("users", "user-123", "profile")
-   
-   # Teams/departments
-   ("users", "team-sales", "profile")
-   
-   # Roles
-   ("users", "admin-1", "profile")
-   ```
+    ```python
+    # Individual users
+    ("users", "user-123", "profile")
+    
+    # Teams/departments
+    ("users", "team-sales", "profile")
+    
+    # Roles
+    ("users", "admin-1", "profile")
+    ```
 
 See [Storage System](../concepts/conceptual_guide.md#storage-system) for more about store configuration.

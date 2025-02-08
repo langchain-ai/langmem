@@ -11,8 +11,8 @@ Welcome to the LangMem API reference! The documentation is organized into three 
 
 Core memory management utilities:
 
-- [`create_memory_enricher`](memory.md#langmem.create_memory_enricher) - Stateless memory extraction and updates
-- [`create_memory_store_enricher`](memory.md#langmem.create_memory_store_enricher) - Stateful memory management with BaseStore
+- [`create_memory_manager`](memory.md#langmem.create_memory_manager) - Stateless memory extraction and updates
+- [`create_memory_store_manager`](memory.md#langmem.create_memory_store_manager) - Stateful memory management with BaseStore
 
 ## [Memory Tools](tools.md)
 

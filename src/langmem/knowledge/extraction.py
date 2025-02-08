@@ -147,7 +147,7 @@ Extract all important facts or entities. If an existing MEMORY is incorrect or o
 """
 
 
-class MemoryEnricher(Runnable[MemoryState, list[ExtractedMemory]]):
+class MemoryManager(Runnable[MemoryState, list[ExtractedMemory]]):
     def __init__(
         self,
         model: str | BaseChatModel,
@@ -287,7 +287,7 @@ class MemoryEnricher(Runnable[MemoryState, list[ExtractedMemory]]):
         return await self.ainvoke(input)
 
 
-def create_memory_enricher(
+def create_memory_manager(
     model: str | BaseChatModel,
     /,
     schemas: typing.Sequence[typing.Union[BaseModel, type]] = (Memory,),
@@ -295,14 +295,14 @@ def create_memory_enricher(
     enable_inserts: bool = True,
     enable_deletes: bool = False,
 ) -> Runnable[MemoryState, list[ExtractedMemory]]:
-    """Create a memory enricher that processes conversation messages and generates structured memory entries.
+    """Create a memory manager that processes conversation messages and generates structured memory entries.
 
     This function creates an async callable that analyzes conversation messages and existing memories
     to generate or update structured memory entries. It can identify implicit preferences,
     important context, and key information from conversations, organizing them into
     well-structured memories that can be used to improve future interactions.
 
-    The enricher supports both unstructured string-based memories and structured memories
+    The manager supports both unstructured string-based memories and structured memories
     defined by Pydantic models, all automatically persisted to the configured storage.
 
     Args:
@@ -315,16 +315,19 @@ def create_memory_enricher(
             organization. These guide how the model extracts and structures information
             from conversations. Defaults to predefined memory instructions.
         enable_inserts (bool, optional): Whether to allow creating new memory entries.
-            When False, the enricher will only update existing memories. Defaults to True.
+            When False, the manager will only update existing memories. Defaults to True.
         enable_deletes (bool, optional): Whether to allow deleting existing memories
             that are outdated or contradicted by new information. Defaults to False.
+
+    Returns:
+        manager: An runnable that processes conversations and returns `ExtractedMemory`'s. The function signature depends on whether schemas are provided
 
     ???+ example "Examples"
         Basic unstructured memory enrichment:
         ```python
-        from langmem import create_memory_enricher
+        from langmem import create_memory_manager
 
-        enricher = create_memory_enricher("anthropic:claude-3-5-sonnet-latest")
+        manager = create_memory_manager("anthropic:claude-3-5-sonnet-latest")
 
         conversation = [
             {"role": "user", "content": "I prefer dark mode in all my apps"},
@@ -332,7 +335,7 @@ def create_memory_enricher(
         ]
 
         # Extract memories from conversation
-        memories = await enricher(conversation)
+        memories = await manager(conversation)
         print(memories[0][1])  # First memory's content
         # Output: "User prefers dark mode for all applications"
         ```
@@ -340,7 +343,7 @@ def create_memory_enricher(
         Structured memory enrichment with Pydantic models:
         ```python
         from pydantic import BaseModel
-        from langmem import create_memory_enricher
+        from langmem import create_memory_manager
 
         class PreferenceMemory(BaseModel):
             \"\"\"Store the user's preference\"\"\"
@@ -348,7 +351,7 @@ def create_memory_enricher(
             preference: str
             context: str
 
-        enricher = create_memory_enricher(
+        manager = create_memory_manager(
             "anthropic:claude-3-5-sonnet-latest",
             schemas=[PreferenceMemory]
         )
@@ -358,7 +361,7 @@ def create_memory_enricher(
             {"role": "user", "content": "I prefer dark mode in all my apps"},
             {"role": "assistant", "content": "I'll remember that preference"}
         ]
-        memories = await enricher(conversation)
+        memories = await manager(conversation)
         print(memories[0][1])
         # Output:
         # PreferenceMemory(
@@ -378,15 +381,12 @@ def create_memory_enricher(
             {"role": "assistant", "content": "I'll update your preference"},
         ]
 
-        # The enricher will upsert; working with the existing memory instead of always creating a new one
-        updated_memories = await enricher(conversation, memories)
+        # The manager will upsert; working with the existing memory instead of always creating a new one
+        updated_memories = await manager(conversation, memories)
         ```
-
-    Returns:
-        enricher: An runnable that processes conversations and returns `ExtractedMemory`'s. The function signature depends on whether schemas are provided
     """
 
-    return MemoryEnricher(
+    return MemoryManager(
         model,
         schemas=schemas,
         instructions=instructions,
@@ -513,13 +513,13 @@ class MemoryPhase(TypedDict, total=False):
     enable_deletes: bool
 
 
-class MemoryStoreEnricherInput(TypedDict):
-    """Input schema for MemoryStoreEnricher."""
+class MemoryStoreManagerInput(TypedDict):
+    """Input schema for MemoryStoreManager."""
 
     messages: list[AnyMessage]
 
 
-class MemoryStoreEnricher(Runnable[MemoryStoreEnricherInput, list[dict]]):
+class MemoryStoreManager(Runnable[MemoryStoreManagerInput, list[dict]]):
     def __init__(
         self,
         model: str | BaseChatModel,
@@ -557,7 +557,7 @@ class MemoryStoreEnricher(Runnable[MemoryStoreEnricherInput, list[dict]]):
         self.phases = phases or []
         self.namespace = utils.NamespaceTemplate(namespace)
 
-        self.memory_enricher = create_memory_enricher(
+        self.memory_manager = create_memory_manager(
             self.model,
             schemas=schemas,
             instructions=instructions,
@@ -579,8 +579,8 @@ class MemoryStoreEnricher(Runnable[MemoryStoreEnricherInput, list[dict]]):
         return uuid.uuid5(uuid.NAMESPACE_DNS, str((*item.namespace, item.key))).hex
 
     @staticmethod
-    def _apply_enricher_output(
-        enricher_output: list[ExtractedMemory],
+    def _apply_manager_output(
+        manager_output: list[ExtractedMemory],
         store_based: list[tuple[str, str, dict]],
         store_map: dict[str, SearchItem],
         ephemeral: list[tuple[str, str, dict]],
@@ -590,7 +590,7 @@ class MemoryStoreEnricher(Runnable[MemoryStoreEnricherInput, list[dict]]):
             sid: (sid, kind, content) for (sid, kind, content) in ephemeral
         }
         removed_ids = []
-        for extracted in enricher_output:
+        for extracted in manager_output:
             stable_id = extracted.id
             model_data = extracted.content
             if isinstance(model_data, BaseModel):
@@ -615,10 +615,10 @@ class MemoryStoreEnricher(Runnable[MemoryStoreEnricherInput, list[dict]]):
                 ephemeral_dict[stable_id] = (stable_id, new_kind, new_content)
         return list(store_dict.values()), list(ephemeral_dict.values()), removed_ids
 
-    def _build_phase_enricher(
+    def _build_phase_manager(
         self, phase: MemoryPhase
     ) -> Runnable[MessagesState, list[ExtractedMemory]]:
-        return create_memory_enricher(
+        return create_memory_manager(
             self.model,
             schemas=self.schemas,
             instructions=phase.get(
@@ -642,11 +642,11 @@ class MemoryStoreEnricher(Runnable[MemoryStoreEnricherInput, list[dict]]):
             key=lambda it: it.score if it.score is not None else float("-inf"),
             reverse=True,
         )[:query_limit]
-        return {MemoryStoreEnricher._stable_id(item): item for item in sorted_results}
+        return {MemoryStoreManager._stable_id(item): item for item in sorted_results}
 
     async def ainvoke(
         self,
-        input: MemoryStoreEnricherInput,
+        input: MemoryStoreManagerInput,
         config: typing.Optional[RunnableConfig] = None,
         **kwargs: typing.Any,
     ) -> list[dict]:
@@ -686,18 +686,18 @@ class MemoryStoreEnricher(Runnable[MemoryStoreEnricherInput, list[dict]]):
         ephemeral: list[tuple[str, str, dict]] = []
         removed_ids: set[str] = set()
 
-        # --- Enrich memories using the composed MemoryEnricher (async) ---
-        enriched = await self.memory_enricher.ainvoke(
+        # --- Enrich memories using the composed MemoryManager (async) ---
+        enriched = await self.memory_manager.ainvoke(
             {"messages": input["messages"], "existing": store_based}
         )
-        store_based, ephemeral, removed = self._apply_enricher_output(
+        store_based, ephemeral, removed = self._apply_manager_output(
             enriched, store_based, store_map, ephemeral
         )
         removed_ids.update(removed)
 
         # Process additional phases.
         for phase in self.phases:
-            phase_enricher = self._build_phase_enricher(phase)
+            phase_manager = self._build_phase_manager(phase)
             phase_messages = (
                 input["messages"] if phase.get("include_messages", False) else []
             )
@@ -705,8 +705,8 @@ class MemoryStoreEnricher(Runnable[MemoryStoreEnricherInput, list[dict]]):
                 "messages": phase_messages,
                 "existing": store_based + ephemeral,
             }
-            phase_enriched = await phase_enricher.ainvoke(phase_input)
-            store_based, ephemeral, removed = self._apply_enricher_output(
+            phase_enriched = await phase_manager.ainvoke(phase_input)
+            store_based, ephemeral, removed = self._apply_manager_output(
                 phase_enriched, store_based, store_map, ephemeral
             )
             removed_ids.update(removed)
@@ -750,7 +750,7 @@ class MemoryStoreEnricher(Runnable[MemoryStoreEnricherInput, list[dict]]):
 
     def invoke(
         self,
-        input: MemoryStoreEnricherInput,
+        input: MemoryStoreManagerInput,
         config: typing.Optional[RunnableConfig] = None,
         **kwargs: typing.Any,
     ) -> list[dict]:
@@ -801,16 +801,16 @@ class MemoryStoreEnricher(Runnable[MemoryStoreEnricherInput, list[dict]]):
         ephemeral: list[tuple[str, str, dict]] = []
         removed_ids: set[str] = set()
 
-        enriched = self.memory_enricher.invoke(
+        enriched = self.memory_manager.invoke(
             {"messages": input["messages"], "existing": store_based}
         )
-        store_based, ephemeral, removed = self._apply_enricher_output(
+        store_based, ephemeral, removed = self._apply_manager_output(
             enriched, store_based, store_map, ephemeral
         )
         removed_ids.update(removed)
 
         for phase in self.phases:
-            phase_enricher = self._build_phase_enricher(phase)
+            phase_manager = self._build_phase_manager(phase)
             phase_messages = (
                 input["messages"] if phase.get("include_messages", False) else []
             )
@@ -818,8 +818,8 @@ class MemoryStoreEnricher(Runnable[MemoryStoreEnricherInput, list[dict]]):
                 "messages": phase_messages,
                 "existing": store_based + ephemeral,
             }
-            phase_enriched = phase_enricher.invoke(phase_input)
-            store_based, ephemeral, removed = self._apply_enricher_output(
+            phase_enriched = phase_manager.invoke(phase_input)
+            store_based, ephemeral, removed = self._apply_manager_output(
                 phase_enriched, store_based, store_map, ephemeral
             )
             removed_ids.update(removed)
@@ -866,7 +866,7 @@ class MemoryStoreEnricher(Runnable[MemoryStoreEnricherInput, list[dict]]):
         return await self.ainvoke({"messages": messages})
 
 
-def create_memory_store_enricher(
+def create_memory_store_manager(
     model: str | BaseChatModel,
     /,
     *,
@@ -881,8 +881,11 @@ def create_memory_store_enricher(
     query_limit: int = 5,
     namespace: tuple[str, ...] = ("memories", "{langgraph_user_id}"),
     phases: list[MemoryPhase] | None = None,
-) -> MemoryStoreEnricher:
+) -> MemoryStoreManager:
     """Enriches memories stored in the configured BaseStore.
+
+    The system automatically searches for relevant memories, extracts new information,
+    updates existing memories, and maintains a versioned history of all changes.
 
     Args:
         model (Union[str, BaseChatModel]): The primary language model to use for memory
@@ -894,7 +897,7 @@ def create_memory_store_enricher(
             organization. These guide how the model extracts and structures information
             from conversations. Defaults to predefined memory instructions.
         enable_inserts (bool, optional): Whether to allow creating new memory entries.
-            When False, the enricher will only update existing memories. Defaults to True.
+            When False, the manager will only update existing memories. Defaults to True.
         enable_deletes (bool, optional): Whether to allow deleting existing memories
             that are outdated or contradicted by new information. Defaults to True.
         query_model (Optional[Union[str, BaseChatModel]], optional): Optional separate
@@ -908,27 +911,24 @@ def create_memory_store_enricher(
             populated from the runtime context. Defaults to `("memories", "{langgraph_user_id}")`.
 
     Returns:
-        enricher: An runnable that processes conversations and automatically manages memories in the LangGraph BaseStore.
-
-    The system automatically searches for relevant memories, extracts new information,
-    updates existing memories, and maintains a versioned history of all changes.
+        manager: An runnable that processes conversations and automatically manages memories in the LangGraph BaseStore.
 
     The basic data flow works as follows:
 
     ```mermaid
     sequenceDiagram
     participant Client
-    participant Enricher
+    participant Manager
     participant Store
     participant LLM
 
-    Client->>Enricher: conversation history
-    Enricher->>Store: find similar memories
-    Store-->>Enricher: memories
-    Enricher->>LLM: analyze & extract
-    LLM-->>Enricher: memory updates
-    Enricher->>Store: apply changes
-    Enricher-->>Client: updated memories
+    Client->>Manager: conversation history
+    Manager->>Store: find similar memories
+    Store-->>Manager: memories
+    Manager->>LLM: analyze & extract
+    LLM-->>Manager: memory updates
+    Manager->>Store: apply changes
+    Manager-->>Client: updated memories
     ```
 
     ???+ example "Examples"
@@ -942,10 +942,10 @@ def create_memory_store_enricher(
         from langgraph.func import entrypoint
         from langgraph.store.memory import InMemoryStore
 
-        from langmem import create_memory_store_enricher
+        from langmem import create_memory_store_manager
 
         store = InMemoryStore()
-        enricher = create_memory_store_enricher("anthropic:claude-3-5-sonnet-latest", namespace=("memories", "{langgraph_user_id}"))
+        manager = create_memory_store_manager("anthropic:claude-3-5-sonnet-latest", namespace=("memories", "{langgraph_user_id}"))
         client = AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
 
@@ -964,7 +964,7 @@ def create_memory_store_enricher(
             )
             response = {"role": "assistant", "content": llm_response.content[0].text}
 
-            await enricher.ainvoke(
+            await manager.ainvoke(
                 {"messages": [{"role": "user", "content": message}, response]},
             )
             return response["content"]
@@ -991,10 +991,10 @@ def create_memory_store_enricher(
         from langgraph.store.memory import InMemoryStore
         from pydantic import BaseModel
 
-        from langmem import create_memory_store_enricher
+        from langmem import create_memory_store_manager
 
         store = InMemoryStore()
-        enricher = create_memory_store_enricher(
+        manager = create_memory_store_manager(
             "anthropic:claude-3-5-sonnet-latest",
             namespace=("memories", "{langgraph_user_id}"),
         )
@@ -1007,7 +1007,7 @@ def create_memory_store_enricher(
 
 
         store = InMemoryStore()
-        enricher = create_memory_store_enricher(
+        manager = create_memory_store_manager(
             "anthropic:claude-3-5-sonnet-latest",
             schemas=[PreferenceMemory],
             namespace=("project", "team_1", "{langgraph_user_id}"),
@@ -1018,7 +1018,7 @@ def create_memory_store_enricher(
         async def my_agent(message: str):
             # Hard code the response :)
             response = {"role": "assistant", "content": "I'll remember that preference"}
-            await enricher.ainvoke(
+            await manager.ainvoke(
                 {"messages": [{"role": "user", "content": message}, response]}
             )
             return response
@@ -1043,30 +1043,30 @@ def create_memory_store_enricher(
     ```mermaid
         sequenceDiagram
             participant Client
-            participant Enricher
+            participant Manager
             participant QueryLLM
             participant Store
             participant MainLLM
 
-            Client->>Enricher: messages
-            Enricher->>QueryLLM: generate search query
-            QueryLLM-->>Enricher: optimized query
-            Enricher->>Store: find memories
-            Store-->>Enricher: memories
-            Enricher->>MainLLM: analyze & extract
-            MainLLM-->>Enricher: memory updates
-            Enricher->>Store: apply changes
-            Enricher-->>Client: result
+            Client->>Manager: messages
+            Manager->>QueryLLM: generate search query
+            QueryLLM-->>Manager: optimized query
+            Manager->>Store: find memories
+            Store-->>Manager: memories
+            Manager->>MainLLM: analyze & extract
+            MainLLM-->>Manager: memory updates
+            Manager->>Store: apply changes
+            Manager-->>Client: result
     ```
 
     ???+ example "Using an LLM to search for memories"
         ```python
-        from langmem import create_memory_store_enricher
+        from langmem import create_memory_store_manager
         from langgraph.store.memory import InMemoryStore
         from langgraph.func import entrypoint
 
         store = InMemoryStore()
-        enricher = create_memory_store_enricher(
+        manager = create_memory_store_manager(
             "anthropic:claude-3-5-sonnet-latest",  # Main model for memory processing
             query_model="anthropic:claude-3-5-haiku-latest",  # Faster model for search
             query_limit=10,  # Retrieve more relevant memories
@@ -1078,7 +1078,7 @@ def create_memory_store_enricher(
         async def my_agent(message: str):
             # Hard code the response :)
             response = {"role": "assistant", "content": "I'll remember that preference"}
-            await enricher.ainvoke(
+            await manager.ainvoke(
                 {"messages": [{"role": "user", "content": message}, response]}
             )
             return response
@@ -1093,8 +1093,8 @@ def create_memory_store_enricher(
         print(store.search(("memories", "user123")))
         ```
 
-    In the examples above, we were calling the enricher in the main thread. In a real application, you'll
-    likely want to background the execution of the enricher, either by executing it in a background thread or on a separate server.
+    In the examples above, we were calling the manager in the main thread. In a real application, you'll
+    likely want to background the execution of the manager, either by executing it in a background thread or on a separate server.
     To do so, you can use the `ReflectionExecutor` class:
 
     ```mermaid
@@ -1112,16 +1112,16 @@ def create_memory_store_enricher(
     ???+ example "Running reflections in the background"
         Background enrichment using @entrypoint:
         ```python
-        from langmem import create_memory_store_enricher, ReflectionExecutor
+        from langmem import create_memory_store_manager, ReflectionExecutor
         from langgraph.prebuilt import create_react_agent
         from langgraph.store.memory import InMemoryStore
         from langgraph.func import entrypoint
 
         store = InMemoryStore()
-        enricher = create_memory_store_enricher(
+        manager = create_memory_store_manager(
             "anthropic:claude-3-5-sonnet-latest", namespace=("memories", "{user_id}")
         )
-        reflection = ReflectionExecutor(enricher, store=store)
+        reflection = ReflectionExecutor(manager, store=store)
         agent = create_react_agent(
             "anthropic:claude-3-5-sonnet-latest", tools=[], store=store
         )
@@ -1153,7 +1153,7 @@ def create_memory_store_enricher(
         print(store.search(("memories", "user-123")))
         ```
     """
-    return MemoryStoreEnricher(
+    return MemoryStoreManager(
         model,
         schemas=schemas,
         instructions=instructions,
@@ -1167,8 +1167,8 @@ def create_memory_store_enricher(
 
 
 __all__ = [
-    "create_memory_enricher",
+    "create_memory_manager",
     "create_memory_searcher",
-    "create_memory_store_enricher",
+    "create_memory_store_manager",
     "create_thread_extractor",
 ]

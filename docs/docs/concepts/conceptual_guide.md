@@ -46,10 +46,10 @@ Finally, memory relevance is more than just semantic similarity. Recall should c
     ??? note "Setup"
 
         ```python
-        from langmem import create_memory_enricher
+        from langmem import create_memory_manager
         
         # highlight-next-line
-        enricher = create_memory_enricher(
+        manager = create_memory_manager(
             "anthropic:claude-3-5-sonnet-latest",
             instructions="Extract all noteworthy facts, events, and relationships. Indicate their importance.",
             # highlight-next-line
@@ -65,7 +65,7 @@ Finally, memory relevance is more than just semantic similarity. Recall should c
         ```
 
     ```python
-    memories = enricher.invoke({"messages": conversation})
+    memories = manager.invoke({"messages": conversation})
     # Example memories:
     # [
     #     ExtractedMemory(
@@ -111,7 +111,7 @@ Finally, memory relevance is more than just semantic similarity. Recall should c
     ??? note "Setup"
 
         ```python
-        from langmem import create_memory_enricher
+        from langmem import create_memory_manager
         from pydantic import BaseModel
 
 
@@ -124,7 +124,7 @@ Finally, memory relevance is more than just semantic similarity. Recall should c
             other_preferences: list[str]
 
 
-        enricher = create_memory_enricher(
+        manager = create_memory_manager(
             "anthropic:claude-3-5-sonnet-latest",
             schemas=[UserProfile],
             instructions="Extract user preferences and settings",
@@ -140,7 +140,7 @@ Finally, memory relevance is more than just semantic similarity. Recall should c
         ```
 
     ```python
-    profile = enricher.invoke({"messages": conversation})[0]
+    profile = manager.invoke({"messages": conversation})[0]
     print(profile)
     # Example profile:
     # ExtractedMemory(
@@ -174,7 +174,7 @@ Episodic memory preserves successful interactions as learning examples that guid
 
         ```python
         from pydantic import BaseModel, Field
-        from langmem import create_memory_enricher
+        from langmem import create_memory_manager
 
         class Episode(BaseModel):
             """An episode captures how to handle a specific situation, including the reasoning process
@@ -198,7 +198,7 @@ Episodic memory preserves successful interactions as learning examples that guid
             )
 
         # highlight-next-line
-        enricher = create_memory_enricher(
+        manager = create_memory_manager(
             "anthropic:claude-3-5-sonnet-latest",
             schemas=[Episode],
             instructions="Extract examples of successful interactions. Include the context, thought process, and why the approach worked.",
@@ -215,7 +215,7 @@ Episodic memory preserves successful interactions as learning examples that guid
 
     ```python
     # Extract episode(s)
-    episodes = enricher.invoke({"messages": conversation})
+    episodes = manager.invoke({"messages": conversation})
     # Example episode:
     # [
     #     ExtractedMemory(
@@ -323,7 +323,7 @@ LangMem's memory utilities are organized in two layers of integration patterns:
 
 At its heart, LangMem provides functions that transform memory state without side effects. These primitives are the building blocks for memory operations:
 
-- [**Memory Enrichers**](../reference/memory.md#langmem.create_memory_enricher): Extract new memories, update or remove outdated memories, and consolidate and generalize from existing memories based on new conversation information
+- [**Memory Managers**](../reference/memory.md#langmem.create_memory_manager): Extract new memories, update or remove outdated memories, and consolidate and generalize from existing memories based on new conversation information
 - [**Prompt Optimizers**](../reference/prompt_optimization.md#langmem.create_prompt_optimizer): Update prompt rules and core behavior based on conversation information (with optional feedback)
 
 These core functions do not depend on any particular database or storage system. You can use them in any application.
@@ -332,7 +332,7 @@ These core functions do not depend on any particular database or storage system.
 
 The next layer up depends on LangGraph's long-term memory store. These components use the core API above to transform memories that existin in the store and upsert/delete them as needed when new conversation information comesin:
 
-- [**Store Enrichers**](../reference/memory.md#langmem.create_memory_store_enricher): Automatically persist extracted memories
+- [**Store Managers**](../reference/memory.md#langmem.create_memory_store_manager): Automatically persist extracted memories
 - [**Memory Management Tools**](../reference/tools.md#langmem.create_manage_memory_tool): Give agents direct access to memory operations
 
 Use these if you're using LangGraph Platform or LangGraph OSS, since it's an easy way to add memory capabilities to your agents.

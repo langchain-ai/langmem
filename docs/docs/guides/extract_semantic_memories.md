@@ -11,7 +11,7 @@ Need to extract multiple related facts from conversations? Here's how to use Lan
 Extract semantic memories:
 
 ```python
-from langmem import create_memory_enricher # (2)
+from langmem import create_memory_manager # (2)
 from pydantic import BaseModel
 
 class Triple(BaseModel): # (1)
@@ -22,7 +22,7 @@ class Triple(BaseModel): # (1)
     context: str | None = None
 
 # Configure extraction
-enricher = create_memory_enricher(  
+manager = create_memory_manager(  
     "anthropic:claude-3-5-sonnet-latest",
     schemas=[Triple], 
     instructions="Extract user preferences and any other useful information",
@@ -54,8 +54,8 @@ enricher = create_memory_enricher(
     saves memories that are sufficiently informative in isolation.
 
 2. LangMem has two similar objects for extracting and enriching memory collections:
-   - `create_memory_enricher`: (this examples) You control storage and updates
-   - `create_memory_store_enricher`: Handles the memory search, upserts, and deletes directly in whichever BaseStore is configured
+   - `create_memory_manager`: (this examples) You control storage and updates
+   - `create_memory_store_manager`: Handles the memory search, upserts, and deletes directly in whichever BaseStore is configured
    for the graph context
 
    The latter uses the former. Both of these work by prompting an LLM to use parallel tool calling to extract new memories, update old ones, and (if configured) delete old ones.
@@ -67,7 +67,7 @@ After the first short interaction, the system has extracted some semantic triple
 conversation1 = [
     {"role": "user", "content": "Alice manages the ML team and mentors Bob, who is also on the team."}
 ]
-memories = enricher.invoke({"messages": conversation1})
+memories = manager.invoke({"messages": conversation1})
 print("After first conversation:")
 for m in memories:
     print(m)
@@ -76,14 +76,14 @@ for m in memories:
 # ExtractedMemory(id='258dbf2d-e4ac-47ac-8ffe-35c70a3fe7fc', content=Triple(subject='Bob', predicate='is_member_of', object='ML_team', context=None))
 ```
 
-The second conversation updates some existing memories. Since we have enabled "deletes", the enricher will return `RemoveDoc` objects to indicate that the memory should be removed, and a new memory will be created in its place. Since this uses the core "functional" API (aka, it doesn't read or write to a database), you can control what "removal" means, be that a soft or hard delete, or simply a down-weighting of the memory.
+The second conversation updates some existing memories. Since we have enabled "deletes", the manager will return `RemoveDoc` objects to indicate that the memory should be removed, and a new memory will be created in its place. Since this uses the core "functional" API (aka, it doesn't read or write to a database), you can control what "removal" means, be that a soft or hard delete, or simply a down-weighting of the memory.
 
 ```python
 # Second conversation - update and add triples
 conversation2 = [
     {"role": "user", "content": "Bob now leads the ML team and the NLP project."}
 ]
-update = enricher.invoke({"messages": conversation2, "existing": memories})
+update = manager.invoke({"messages": conversation2, "existing": memories})
 print("After second conversation:")
 for m in update:
     print(m)
@@ -102,7 +102,7 @@ The third conversation overwrites even more memories.
 conversation3 = [
     {"role": "user", "content": "Alice left the company."}
 ]
-final = enricher.invoke({"messages": conversation3, "existing": existing})
+final = manager.invoke({"messages": conversation3, "existing": existing})
 print("After third conversation:")
 for m in final:
     print(m)
@@ -126,11 +126,11 @@ The same extraction can be managed automatically by LangGraph's BaseStore:
 from langchain.chat_models import init_chat_model
 from langgraph.func import entrypoint
 from langgraph.store.memory import InMemoryStore
-from langmem import create_memory_store_enricher
+from langmem import create_memory_store_manager
 
 # Set up store and models
 store = InMemoryStore() # (1)
-enricher = create_memory_store_enricher(
+manager = create_memory_store_manager(
     "anthropic:claude-3-5-sonnet-latest",
     namespace=("chat", "{user_id}", "triples"),
     schemas=[Triple],
@@ -177,7 +177,7 @@ my_llm = init_chat_model("anthropic:claude-3-5-sonnet-latest")
     The `{user_id}` placeholder is replaced at runtime:
     ```text
     # Extract memories for User A
-    enricher.invoke(
+    manager.invoke(
         messages=[{"role": "user", "content": "I prefer dark mode"}],
         config={"configurable": {"user_id": "user-a"}}
     )  # Uses ("chat", "user-a", "triples")
@@ -199,7 +199,7 @@ def app(messages: list):
     )
 
     # Extract and store triples (Uses store from @entrypoint context)
-    enricher.invoke({"messages": messages}) 
+    manager.invoke({"messages": messages}) 
     return response
 ```
 

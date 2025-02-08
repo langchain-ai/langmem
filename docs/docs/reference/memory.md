@@ -8,5 +8,5 @@ title: Memory API Reference
     handler: python
     options:
       members:
-        - create_memory_enricher
-        - create_memory_store_enricher
+        - create_memory_manager
+        - create_memory_store_manager

@@ -74,8 +74,8 @@ MANUAL_API_REFERENCES_LANGMEM = [
     ("langmem", "create_search_memory_tool", "tools"),
     ("langmem", "create_prompt_optimizer", "prompt_optimization"),
     ("langmem", "create_multi_prompt_optimizer", "prompt_optimization"),
-    ("langmem", "create_memory_enricher", "memory"),
-    ("langmem", "create_memory_store_enricher", "memory"),
+    ("langmem", "create_memory_manager", "memory"),
+    ("langmem", "create_memory_store_manager", "memory"),
     ("langmem.utils", "NamespaceTemplate", "utils"),
     ("langmem", "ReflectionExecutor", "utils"),
 ]

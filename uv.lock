@@ -430,6 +430,15 @@ wheels = [
 ]
 
 [[package]]
+name = "execnet"
+version = "2.1.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/bb/ff/b4c0dc78fbe20c3e59c0c7334de0c27eb4001a2b2017999af398bf730817/execnet-2.1.1.tar.gz", hash = "sha256:5189b52c6121c24feae288166ab41b32549c7e2348652736540b9e6e7d4e72e3", size = 166524 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/43/09/2aea36ff60d16dd8879bdb2f5b3ee0ba8d08cbbdcdfe870e695ce3784385/execnet-2.1.1-py3-none-any.whl", hash = "sha256:26dee51f1b80cebd6d0ca8e74dd8745419761d3bef34163928cbebbdc4749fdc", size = 40612 },
+]
+
+[[package]]
 name = "fastjsonschema"
 version = "2.21.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1167,7 +1176,7 @@ wheels = [
 
 [[package]]
 name = "langmem"
-version = "0.0.5rc13"
+version = "0.0.6"
 source = { virtual = "." }
 dependencies = [
     { name = "langchain" },
@@ -1186,6 +1195,7 @@ dev = [
     { name = "langgraph-cli", extra = ["inmem"] },
     { name = "pytest" },
     { name = "pytest-watch" },
+    { name = "pytest-xdist" },
 ]
 docs = [
     { name = "markdown-callouts" },
@@ -1223,6 +1233,7 @@ dev = [
     { name = "langgraph-cli", extras = ["inmem"], specifier = ">=0.1.70" },
     { name = "pytest", specifier = ">=8.3.4" },
     { name = "pytest-watch", specifier = ">=4.2.0" },
+    { name = "pytest-xdist", specifier = ">=3.6.1" },
 ]
 docs = [
     { name = "markdown-callouts", specifier = ">=0.4.0" },
@@ -2124,6 +2135,19 @@ dependencies = [
     { name = "watchdog" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/36/47/ab65fc1d682befc318c439940f81a0de1026048479f732e84fe714cd69c0/pytest-watch-4.2.0.tar.gz", hash = "sha256:06136f03d5b361718b8d0d234042f7b2f203910d8568f63df2f866b547b3d4b9", size = 16340 }
+
+[[package]]
+name = "pytest-xdist"
+version = "3.6.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "execnet" },
+    { name = "pytest" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/41/c4/3c310a19bc1f1e9ef50075582652673ef2bfc8cd62afef9585683821902f/pytest_xdist-3.6.1.tar.gz", hash = "sha256:ead156a4db231eec769737f57668ef58a2084a34b2e55c4a8fa20d861107300d", size = 84060 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/6d/82/1d96bf03ee4c0fdc3c0cbe61470070e659ca78dc0086fb88b66c185e2449/pytest_xdist-3.6.1-py3-none-any.whl", hash = "sha256:9ed4adfb68a016610848639bb7e02c9352d5d9f03d04809919e2dafc3be4cca7", size = 46108 },
+]
 
 [[package]]
 name = "python-dateutil"

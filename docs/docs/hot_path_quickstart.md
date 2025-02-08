@@ -168,4 +168,4 @@ This example demonstrates memory persistence across conversations and thread iso
 
 In this quick start, you configured an agent to manage its memory "in the hot path" using tools. Check out the following guides for other features:
 
-- [Reflection Quickstart](background_quickstart.md) – Learn how to manage memories "in the background" using `create_memory_store_enricher`.
+- [Reflection Quickstart](background_quickstart.md) – Learn how to manage memories "in the background" using `create_memory_store_manager`.

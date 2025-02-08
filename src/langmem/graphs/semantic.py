@@ -5,7 +5,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph.state import StateGraph
 from typing_extensions import TypedDict
 
-from langmem import create_memory_store_enricher
+from langmem import create_memory_store_manager
 from langmem.knowledge import MemoryPhase
 
 
@@ -70,7 +70,7 @@ Use parallel tool calling to extract all information the AI will need to adapt a
                 "enable_inserts": False,
             },
         ]
-    enricher = create_memory_store_enricher(
+    manager = create_memory_store_manager(
         model,
         instructions=instructions,
         query_model=configurable.get("query_model", "openai:gpt-4o-mini"),
@@ -81,7 +81,7 @@ Use parallel tool calling to extract all information the AI will need to adapt a
         phases=phases,
     )
 
-    updated_memories = await enricher(messages)
+    updated_memories = await manager(messages)
     return {
         "updated_memories": updated_memories,
         "root_namespace": ("semantic", configurable.get("langgraph_auth_user_id", "")),

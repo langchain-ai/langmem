@@ -12,7 +12,7 @@ Memories can be created in two ways:
 
 ![Hot Path Quickstart Diagram](concepts/img/hot_path_vs_background.png)
 
-This guide shows you how to extract and consolidate memories in the background using [`create_memory_store_enricher`](). The agent will continue as normal while memories are processed in the background.
+This guide shows you how to extract and consolidate memories in the background using [`create_memory_store_manager`](). The agent will continue as normal while memories are processed in the background.
 
 # Prerequisites
 
@@ -35,13 +35,13 @@ from langchain.chat_models import init_chat_model
 from langgraph.func import entrypoint
 from langgraph.store.memory import InMemoryStore
 
-from langmem import ReflectionExecutor, create_memory_store_enricher
+from langmem import ReflectionExecutor, create_memory_store_manager
 
 store = InMemoryStore()  # (4)
 llm = init_chat_model("anthropic:claude-3-5-sonnet-latest")
 
 # Create memory manager Runnable to extract memories from conversations
-memory_manager = create_memory_store_enricher(
+memory_manager = create_memory_store_manager(
     "anthropic:claude-3-5-sonnet-latest",
     # Store memories in the "memories" namespace (aka directory)
     namespace=("memories",),  # (1)

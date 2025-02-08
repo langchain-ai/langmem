@@ -30,6 +30,19 @@ def create_manage_memory_tool(
     persistent memories that carry over between conversations. The tool helps maintain
     context and user preferences across sessions.
 
+
+    Args:
+        instructions: Custom instructions for when to use the memory tool.
+            Defaults to a predefined set of guidelines for proactive memory management.
+        namespace: The namespace structure for organizing memories in LangGraph's BaseStore.
+            Uses runtime configuration with placeholders like `{langgraph_user_id}`.
+        store: The BaseStore to use for searching. If not provided, the tool will use the configured BaseStore in your graph or entrypoint.
+            Only set if you intend on using these tools outside the LangGraph context.
+
+    Returns:
+        memory_tool (Tool): A decorated async function that can be used as a tool for memory management.
+            The tool supports creating, updating, and deleting memories with proper validation.
+
     The resulting tool has a signature that looks like the following:
         ```python
         from typing import Literal
@@ -42,14 +55,6 @@ def create_manage_memory_tool(
         ) -> str: ...
         ```
         _Note: the tool supports both sync and async usage._
-
-    Args:
-        instructions: Custom instructions for when to use the memory tool.
-            Defaults to a predefined set of guidelines for proactive memory management.
-        namespace: The namespace structure for organizing memories in LangGraph's BaseStore.
-            Uses runtime configuration with placeholders like `{langgraph_user_id}`.
-        store: The BaseStore to use for searching. If not provided, the tool will use the configured BaseStore in your graph or entrypoint.
-            Only set if you intend on using these tools outside the LangGraph context.
 
     !!! note "Namespace Configuration"
         The namespace is configured at runtime through the `config` parameter:
@@ -231,9 +236,6 @@ def create_manage_memory_tool(
 
         If you want to limit the actions that can be taken by the tool, you can do so by providing a `actions_permitted` argument.
 
-    Returns:
-        memory_tool (Tool): A decorated async function that can be used as a tool for memory management.
-            The tool supports creating, updating, and deleting memories with proper validation.
     """
     namespacer = utils.NamespaceTemplate(namespace)
     action_type = typing.Literal[*actions_permitted]
@@ -336,6 +338,19 @@ def create_search_memory_tool(
     memories using semantic or exact matching. The tool returns both the memory contents and
     the raw memory objects for advanced usage.
 
+    Args:
+        instructions: Custom instructions for when to use the search tool.
+            Defaults to a predefined set of guidelines.
+        namespace: The namespace structure for organizing memories in LangGraph's BaseStore.
+            Uses runtime configuration with placeholders like `{langgraph_user_id}`.
+            See [Memory Namespaces](../concepts/conceptual_guide.md#memory-namespaces).
+        store: The BaseStore to use for searching. If not provided, the tool will use the configured BaseStore in your graph or entrypoint.
+            Only set if you intend on using these tools outside the LangGraph context.
+
+    Returns:
+        search_tool (Tool): A decorated function that can be used as a tool for memory search.
+            The tool returns both serialized memories and raw memory objects.
+
     The resulting tool has a signature that looks like the following:
         ```python
         def search_memory(
@@ -347,14 +362,6 @@ def create_search_memory_tool(
         ```
     _Note: the tool supports both sync and async usage._
 
-    Args:
-        instructions: Custom instructions for when to use the search tool.
-            Defaults to a predefined set of guidelines.
-        namespace: The namespace structure for organizing memories in LangGraph's BaseStore.
-            Uses runtime configuration with placeholders like `{langgraph_user_id}`.
-            See [Memory Namespaces](../concepts/conceptual_guide.md#memory-namespaces).
-        store: The BaseStore to use for searching. If not provided, the tool will use the configured BaseStore in your graph or entrypoint.
-            Only set if you intend on using these tools outside the LangGraph context.
 
     Tip:
         This tool connects with the LangGraph [BaseStore](https://langchain-ai.github.io/langgraph/reference/store/#langgraph.store.base.BaseStore) configured in your graph or entrypoint.
@@ -382,10 +389,7 @@ def create_search_memory_tool(
             print(memories)
             return entrypoint.final(value=memories, save={})
         ```
-
-    Returns:
-        search_tool (Tool): A decorated function that can be used as a tool for memory search.
-            The tool returns both serialized memories and raw memory objects."""
+    """
     namespacer = utils.NamespaceTemplate(namespace)
     initial_store = store
 

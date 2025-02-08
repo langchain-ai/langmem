@@ -23,7 +23,7 @@ app.invoke(
 )  # Stores in ("memories", "user-123")
 ```
 
-Namespace templates can be used in any of LangMem stateful components, such as `create_memory_store_enricher` and `create_manage_memory_tool`.
+Namespace templates can be used in any of LangMem stateful components, such as `create_memory_store_manager` and `create_manage_memory_tool`.
 Below is a simple example:
 
 ## Common Patterns
