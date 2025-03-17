@@ -1,21 +1,9 @@
-import json
-import math
-from typing import Callable, cast
+from typing import Callable, Optional, cast
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
-from langchain_core.messages.utils import (
-    _get_message_openai_role,
-)
-from langchain_core.messages.utils import (
-    trim_messages as trim_messages_core,
-)
 from langchain_core.prompts.chat import ChatPromptTemplate, ChatPromptValue
-from langchain_core.runnables import RunnableConfig
-
-from langgraph.store.base import BaseStore
-
-SUMMARIES_NS = ("summaries",)
+from pydantic import BaseModel
 
 TokenCounter = Callable[[list[BaseMessage]], int]
 
@@ -48,119 +36,53 @@ DEFAULT_FINAL_SUMMARY_PROMPT = ChatPromptTemplate.from_messages(
     ]
 )
 
-DEFAULT_APPROXIMATE_TOKEN_LENGTH = 4
-DEFAULT_EXTRA_TOKENS_PER_MESSAGE = 3
+
+class SummaryInfo(BaseModel):
+    # the summary of the conversation so far
+    summary: str
+    # the messages that have been most recently summarized
+    summarized_messages: list[BaseMessage]
+    # keep track of the total number of messages that have been summarized thus far
+    total_summarized_messages: int = 0
 
 
-def count_tokens_approximately(
-    messages: list[BaseMessage],
-    token_length: int = DEFAULT_APPROXIMATE_TOKEN_LENGTH,
-    extra_tokens_per_message: int = DEFAULT_EXTRA_TOKENS_PER_MESSAGE,
-    include_name: bool = True,
-) -> int:
-    token_count = 0
-    for message in messages:
-        message_chars = 0
-        if isinstance(message.content, str):
-            message_chars += len(message.content)
-
-        # TODO: handle image content blocks properly
-        else:
-            content = json.dumps(message.content)
-            message_chars += len(content)
-
-        if (
-            isinstance(message, AIMessage)
-            # exclude Anthropic format as tool calls are already included in the content
-            and not isinstance(message.content, list)
-            and message.tool_calls
-        ):
-            tool_calls_content = json.dumps(message.tool_calls)
-            message_chars += len(tool_calls_content)
-
-        role = _get_message_openai_role(message)
-        message_chars += len(role)
-
-        if message.name and include_name:
-            message_chars += len(message.name)
-
-        # NOTE: we're rounding up per message to ensure that the token counts
-        # are always consistent
-        token_count += math.ceil(message_chars / token_length)
-
-        # add extra tokens per message
-        # see this https://github.com/openai/openai-cookbook/blob/main/examples/How_to_count_tokens_with_tiktoken.ipynb
-        token_count += extra_tokens_per_message
-
-    return token_count
-
-
-def trim_messages(
-    messages: list[BaseMessage],
-    *,
-    max_tokens: int,
-    token_counter: TokenCounter = count_tokens_approximately,
-) -> list[BaseMessage]:
-    return trim_messages_core(
-        messages,
-        max_tokens=max_tokens,
-        token_counter=token_counter,
-        start_on="human",
-        end_on=("human", "tool"),
-        include_system=True,
-    )
+class SummarizationResult(BaseModel):
+    # the messages that will be returned to the user
+    messages: list[BaseMessage]
+    # SummaryInfo (empty if messages were not summarized)
+    summary: SummaryInfo | None = None
 
 
 def summarize_messages(
     messages: list[BaseMessage],
     *,
-    max_tokens: int,
     model: BaseChatModel,
-    store: BaseStore,
-    config: RunnableConfig,
+    max_tokens: int,
     max_summary_tokens: int = 256,
-    token_counter: TokenCounter = count_tokens_approximately,
+    # TODO: replaces this with approximate token counter
+    token_counter: TokenCounter = len,
+    existing_summary: Optional[SummaryInfo] = None,
     initial_summary_prompt: ChatPromptTemplate = DEFAULT_INITIAL_SUMMARY_PROMPT,
     existing_summary_prompt: ChatPromptTemplate = DEFAULT_EXISTING_SUMMARY_PROMPT,
     final_prompt: ChatPromptTemplate = DEFAULT_FINAL_SUMMARY_PROMPT,
-) -> list[BaseMessage]:
+) -> SummarizationResult:
     """A memory handler that summarizes messages when they exceed a token limit and replaces summarized messages with a single summary message.
 
     Args:
         messages: The list of messages to process.
         max_tokens: Maximum number of tokens to return.
         model: The language model to use for generating summaries.
-        store: Storage backend for persisting summaries between runs.
-        config: Configuration that should contain a "configurable" key with a "thread_id" value.
         max_summary_tokens: Maximum number of tokens to return from the summarization LLM.
         token_counter: Function to count tokens in a message. Defaults to approximate counting.
+        existing_summary: Optional existing summary.
         initial_summary_prompt: Prompt template for generating the first summary.
         existing_summary_prompt: Prompt template for updating an existing summary.
         final_prompt: Prompt template that combines summary with the remaining messages before returning.
     """
-    if store is None:
-        raise ValueError(
-            "Cannot initialize summarize_messages with empty store. "
-            "If you're using this inside a graph, it must be compiled with a store, e.g. `graph = builder.compile(store=store)`"
-        )
-
-    model = model.bind(max_tokens=max_summary_tokens)
-
     if max_summary_tokens >= max_tokens:
         raise ValueError("`max_summary_tokens` must be less than `max_tokens`.")
 
-    thread_id = config.get("configurable", {}).get("thread_id")
-
-    # it's possible for someone to need summarization in a long-running loop
-    # instead of multi-turn conversation (i.e., in a single-turn conversation, without need for thread IDs / checkpointer).
-    # however, there is an issue of using `store` in this case:
-    # summaries will persist across invocations, which is definitely not desirable.
-    # for now raising an error here, but could need a more elegant solution for this
-    # (or a different one altogether)
-    if not thread_id:
-        raise ValueError(
-            "summarize_messages requires a thread ID / checkpointer."
-        )
+    summarization_model = model.bind(max_tokens=max_summary_tokens)
 
     # First handle system message if present
     if messages and isinstance(messages[0], SystemMessage):
@@ -173,17 +95,18 @@ def summarize_messages(
         existing_system_message = None
 
     if not messages:
-        return (
-            messages
-            if existing_system_message is None
-            else [existing_system_message] + messages
+        return SummarizationResult(
+            summary=existing_summary,
+            messages=(
+                messages
+                if existing_system_message is None
+                else [existing_system_message] + messages
+            ),
         )
 
-    # Check if we have a stored summary for this thread
-    summary_item = store.get(SUMMARIES_NS, thread_id)
-    summary_value = summary_item.value if summary_item else None
+    summary_value = existing_summary
     total_summarized_messages = (
-        summary_value["total_summarized_messages"] if summary_value else 0
+        summary_value.total_summarized_messages if summary_value else 0
     )
 
     # Single pass through messages to count tokens and find cutoff point
@@ -230,13 +153,13 @@ def summarize_messages(
         messages_to_summarize.pop()
 
     if messages_to_summarize:
-        if summary_value:
+        if existing_summary:
             summary_messages = cast(
                 ChatPromptValue,
                 existing_summary_prompt.invoke(
                     {
                         "messages": messages_to_summarize,
-                        "existing_summary": summary_value["summary"],
+                        "existing_summary": summary_value.summary,
                     }
                 ),
             )
@@ -246,15 +169,13 @@ def summarize_messages(
                 initial_summary_prompt.invoke({"messages": messages_to_summarize}),
             )
 
-        summary_message_response = model.invoke(summary_messages.messages)
+        summary_message_response = summarization_model.invoke(summary_messages.messages)
         total_summarized_messages += len(messages_to_summarize)
-        summary_value = {
-            "summary": summary_message_response.content,
-            "summarized_messages": messages_to_summarize,
-            "total_summarized_messages": total_summarized_messages,
-        }
-        # Store the summary
-        store.put(SUMMARIES_NS, thread_id, summary_value)
+        summary_value = SummaryInfo(
+            summary=summary_message_response.content,
+            summarized_messages=messages_to_summarize,
+            total_summarized_messages=total_summarized_messages,
+        )
 
     if summary_value:
         updated_messages = cast(
@@ -264,16 +185,22 @@ def summarize_messages(
                     "system_message": [existing_system_message]
                     if existing_system_message
                     else [],
-                    "summary": summary_value["summary"],
+                    "summary": summary_value.summary,
                     "messages": messages[total_summarized_messages:],
                 }
             ),
         )
-        return updated_messages.messages
+        return SummarizationResult(
+            summary=summary_value,
+            messages=updated_messages.messages,
+        )
     else:
         # no changes are needed
-        return (
-            messages
-            if existing_system_message is None
-            else [existing_system_message] + messages
+        return SummarizationResult(
+            summary=None,
+            messages=(
+                messages
+                if existing_system_message is None
+                else [existing_system_message] + messages
+            ),
         )

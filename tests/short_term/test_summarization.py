@@ -1,6 +1,5 @@
 from typing import List
 
-import pytest
 from langchain_core.messages import (
     AIMessage,
     BaseMessage,
@@ -8,11 +7,7 @@ from langchain_core.messages import (
     SystemMessage,
 )
 
-from langmem.short_term.summarization import (
-    SUMMARIES_NS,
-    summarize_messages,
-)
-from langgraph.store.memory import InMemoryStore
+from langmem.short_term.summarization import summarize_messages
 
 
 class MockChatModel:
@@ -38,10 +33,6 @@ class MockChatModel:
 
 def test_summarize_first_time():
     """Test summarization when it happens for the first time."""
-    store = InMemoryStore()
-    thread_id = "test_thread_id"
-    config = {"configurable": {"thread_id": thread_id}}
-
     model = MockChatModel(responses=["This is a summary of the conversation."])
 
     # Create enough messages to trigger summarization
@@ -63,8 +54,6 @@ def test_summarize_first_time():
     result = summarize_messages(
         messages,
         model=model,
-        store=store,
-        config=config,
         token_counter=len,
         max_tokens=6,
         max_summary_tokens=0,
@@ -76,45 +65,39 @@ def test_summarize_first_time():
     # Check that the result has the expected structure:
     # - First message should be a summary
     # - Last 3 messages should be the last 3 original messages
-    assert len(result) == 4
-    assert result[0].type == "system"
-    assert "summary" in result[0].content.lower()
-    assert result[1:] == messages[-3:]
+    assert len(result.messages) == 4
+    assert result.messages[0].type == "system"
+    assert "summary" in result.messages[0].content.lower()
+    assert result.messages[1:] == messages[-3:]
 
     # Check that summary was stored in the store
-    summary_value = store.get(SUMMARIES_NS, thread_id).value
+    summary_value = result.summary
     assert summary_value is not None
-    assert "summary" in summary_value
-    assert summary_value["summary"] == "This is a summary of the conversation."
+    assert summary_value.summary == "This is a summary of the conversation."
     assert (
-        summary_value["summarized_messages"] == messages[:6]
+        summary_value.summarized_messages == messages[:6]
     )  # All messages except the latest
 
     # Test subsequent invocation
     result = summarize_messages(
         messages,
         model=model,
-        store=store,
-        config=config,
         token_counter=len,
+        existing_summary=summary_value,
         max_tokens=6,
         max_summary_tokens=0,
     )
-    assert len(result) == 4
-    assert result[0].type == "system"
+    assert len(result.messages) == 4
+    assert result.messages[0].type == "system"
     assert (
-        result[0].content
+        result.messages[0].content
         == "Summary of conversation earlier: This is a summary of the conversation."
     )
-    assert result[1:] == messages[-3:]
+    assert result.messages[1:] == messages[-3:]
 
 
 def test_with_system_message():
     """Test summarization with a system message present."""
-    store = InMemoryStore()
-    thread_id = "test_thread_id"
-    config = {"configurable": {"thread_id": thread_id}}
-
     model = MockChatModel(responses=["Summary with system message present."])
 
     # Create messages with a system message
@@ -138,8 +121,6 @@ def test_with_system_message():
     result = summarize_messages(
         messages,
         model=model,
-        store=store,
-        config=config,
         token_counter=len,
         max_tokens=6,
         max_summary_tokens=0,
@@ -155,19 +136,15 @@ def test_with_system_message():
     # - System message should be preserved
     # - Second message should be a summary of messages 2-5
     # - Last 5 messages should be the last 5 original messages
-    assert len(result) == 7
-    assert result[0].type == "system"
-    assert result[1].type == "system"  # Summary message
-    assert "summary" in result[1].content.lower()
-    assert result[2:] == messages[-5:]
+    assert len(result.messages) == 7
+    assert result.messages[0].type == "system"
+    assert result.messages[1].type == "system"  # Summary message
+    assert "summary" in result.messages[1].content.lower()
+    assert result.messages[2:] == messages[-5:]
 
 
 def test_subsequent_summarization():
     """Test that subsequent summarizations build on previous summaries."""
-    store = InMemoryStore()
-    thread_id = "test_thread_id"
-    config = {"configurable": {"thread_id": thread_id}}
-
     model = MockChatModel(
         responses=[
             "First summary of the conversation.",
@@ -187,11 +164,9 @@ def test_subsequent_summarization():
     ]
 
     # First summarization
-    summarize_messages(
+    result = summarize_messages(
         messages1,
         model=model,
-        store=store,
-        config=config,
         token_counter=len,
         max_tokens=6,
         max_summary_tokens=0,
@@ -210,15 +185,14 @@ def test_subsequent_summarization():
         HumanMessage(content="Latest message 2"),
     ]
 
-    summary_value = store.get(SUMMARIES_NS, thread_id).value
-    assert summary_value["summary"] == "First summary of the conversation."
+    summary_value = result.summary
+    assert summary_value.summary == "First summary of the conversation."
 
     # Second summarization
     result2 = summarize_messages(
         messages2,
         model=model,
-        store=store,
-        config=config,
+        existing_summary=summary_value,
         token_counter=len,
         max_tokens=6,
         max_summary_tokens=0,
@@ -237,52 +211,17 @@ def test_subsequent_summarization():
     )
 
     # Check that the final result has the updated summary
-    assert "summary" in result2[0].content.lower()
-    assert result2[-3:] == messages2[-3:]
+    assert "summary" in result2.messages[0].content.lower()
+    assert result2.messages[-3:] == messages2[-3:]
 
     # Check that the updated summary was stored
-    summary_value = store.get(SUMMARIES_NS, thread_id).value
-    assert summary_value["summary"] == "Updated summary including new messages."
-
-
-def test_no_thread_id():
-    """Test that an error is raised when no thread ID is provided."""
-    model = MockChatModel()
-    store = InMemoryStore()
-
-    config_without_thread_id = {"configurable": {}}
-
-    with pytest.raises(ValueError, match="requires a thread ID"):
-        summarize_messages(
-            [],
-            model=model,
-            store=store,
-            config=config_without_thread_id,
-            max_tokens=10,
-            max_summary_tokens=0,
-        )
-
-
-def test_no_store():
-    """Test that an error is raised when no store is provided."""
-    model = MockChatModel()
-    with pytest.raises(ValueError, match="must be compiled with a store"):
-        summarize_messages(
-            [],
-            model=model,
-            store=None,
-            config={},
-            max_tokens=10,
-            max_summary_tokens=0,
-        )
+    summary_value = result2.summary
+    assert summary_value.summary == "Updated summary including new messages."
 
 
 def test_with_empty_messages():
     """Test summarization with empty message content."""
     model = MockChatModel(responses=["Summary with empty messages."])
-    store = InMemoryStore()
-    thread_id = "test_thread_id"
-    config = {"configurable": {"thread_id": thread_id}}
 
     def count_non_empty_messages(messages: list[BaseMessage]) -> int:
         return sum(1 for msg in messages if msg.content)
@@ -304,25 +243,20 @@ def test_with_empty_messages():
     result = summarize_messages(
         messages,
         model=model,
-        store=store,
-        config=config,
         token_counter=count_non_empty_messages,
         max_tokens=6,
         max_summary_tokens=0,
     )
 
     # Check that summarization still works with empty messages
-    assert len(result) == 2
-    assert "summary" in result[0].content.lower()
-    assert result[1:] == messages[-1:]
+    assert len(result.messages) == 2
+    assert "summary" in result.messages[0].content.lower()
+    assert result.messages[1:] == messages[-1:]
 
 
 def test_large_number_of_messages():
     """Test summarization with a large number of messages."""
     model = MockChatModel(responses=["Summary of many messages."])
-    store = InMemoryStore()
-    thread_id = "test_thread_id"
-    config = {"configurable": {"thread_id": thread_id}}
 
     # Create a large number of messages
     messages = []
@@ -337,8 +271,6 @@ def test_large_number_of_messages():
     result = summarize_messages(
         messages,
         model=model,
-        store=store,
-        config=config,
         token_counter=len,
         max_tokens=22,
         max_summary_tokens=0,
@@ -346,10 +278,10 @@ def test_large_number_of_messages():
 
     # Check that summarization works with many messages
     assert (
-        len(result) == 20
+        len(result.messages) == 20
     )  # summary (for the first 22 messages) + 19 remaining original messages
-    assert "summary" in result[0].content.lower()
-    assert result[1:] == messages[22:]  # last 19 original messages
+    assert "summary" in result.messages[0].content.lower()
+    assert result.messages[1:] == messages[22:]  # last 19 original messages
 
     # Check that the model was called with a subset of messages
     # The implementation might limit how many messages are sent to the model
@@ -364,9 +296,7 @@ def test_only_summarize_new_messages():
             "Updated summary including only new messages.",
         ]
     )
-    store = InMemoryStore()
-    thread_id = "test_thread_id"
-    config = {"configurable": {"thread_id": thread_id}}
+
 
     # First batch of messages
     messages1 = [
@@ -382,11 +312,9 @@ def test_only_summarize_new_messages():
     ]
 
     # First summarization
-    summarize_messages(
+    result = summarize_messages(
         messages1,
         model=model,
-        store=store,
-        config=config,
         token_counter=len,
         max_tokens=6,
         max_summary_tokens=0,
@@ -396,9 +324,9 @@ def test_only_summarize_new_messages():
     assert len(model.invoke_calls) == 1
 
     # Check that the summary was stored correctly
-    summary_value = store.get(SUMMARIES_NS, thread_id).value
-    assert summary_value["summary"] == "First summary of the conversation."
-    assert summary_value["total_summarized_messages"] == 6  # first 6 messages
+    summary_value = result.summary
+    assert summary_value.summary == "First summary of the conversation."
+    assert summary_value.total_summarized_messages == 6  # first 6 messages
 
     # Add more messages to trigger another summarization
     # We need to add at least max_messages (4) new messages
@@ -421,11 +349,10 @@ def test_only_summarize_new_messages():
     messages2.extend(new_messages)
 
     # Second summarization
-    summarize_messages(
+    result2 = summarize_messages(
         messages2,
         model=model,
-        store=store,
-        config=config,
+        existing_summary=summary_value,
         token_counter=len,
         max_tokens=6,
         max_summary_tokens=0,
@@ -453,8 +380,8 @@ def test_only_summarize_new_messages():
     ]
 
     # Check that the updated summary was stored
-    updated_summary_value = store.get(SUMMARIES_NS, thread_id).value
+    updated_summary_value = result2.summary
     assert (
-        updated_summary_value["summary"]
+        updated_summary_value.summary
         == "Updated summary including only new messages."
     )
