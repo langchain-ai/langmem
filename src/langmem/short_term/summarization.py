@@ -54,13 +54,13 @@ class SummarizationResult:
     # the messages that will be returned to the user
     messages: list[BaseMessage]
     # SummaryInfo (empty if messages were not summarized)
-    summary: SummaryInfo | None = None
+    summary_info: SummaryInfo | None = None
 
 
 def summarize_messages(
     messages: list[BaseMessage],
     *,
-    existing_summary: SummaryInfo | None,
+    existing_summary_info: SummaryInfo | None,
     model: BaseChatModel,
     max_tokens: int,
     max_summary_tokens: int = 1,
@@ -71,21 +71,37 @@ def summarize_messages(
 ) -> SummarizationResult:
     """Summarize messages when they exceed a token limit and replace them with a single summary message.
 
+    The function processes the messages from oldest to newest: once the cumulative number of message tokens
+    reaches max_tokens, all messages within the token limit are summarized and replaced with a new summary message.
+    The resulting list of messages is [summary_message] + remaining_messages.
+
     Args:
         messages: The list of messages to process.
-        existing_summary: Optional existing summary.
-        max_tokens: Maximum number of tokens to return.
+        existing_summary_info: Optional existing summary info.
+            If provided, will be used in the following ways:
+            - only the messages since the last summary will be processed
+            - if no new summary is generated, the existing summary will be applied to the returned messages
+            - if a new summary needs to be generated, 
         model: The language model to use for generating summaries.
+        max_tokens: Maximum number of tokens to return.
+            Will be used as a threshold for triggering the summarization: once the cumulative number of message tokens,
+            all messages within max_tokens will be summarized.
         max_summary_tokens: Maximum number of tokens to return from the summarization LLM.
         token_counter: Function to count tokens in a message. Defaults to approximate counting.
         initial_summary_prompt: Prompt template for generating the first summary.
         existing_summary_prompt: Prompt template for updating an existing summary.
         final_prompt: Prompt template that combines summary with the remaining messages before returning.
+
+    Returns:
+        A SummarizationResult object containing the updated messages and summary.
+            - messages: list of updated messages ready to be input to the LLM
+            - summary_info: SummaryInfo object
+                - summary: text of the latest summary
+                - summarized_message_ids: list of message IDs that were most recently summarized
+                - total_summarized_messages: running total of the number of messages that have been summarized thus far
     """
     if max_summary_tokens >= max_tokens:
         raise ValueError("`max_summary_tokens` must be less than `max_tokens`.")
-
-    summarization_model = model.bind(max_tokens=max_summary_tokens)
 
     # First handle system message if present
     if messages and isinstance(messages[0], SystemMessage):
@@ -99,7 +115,7 @@ def summarize_messages(
 
     if not messages:
         return SummarizationResult(
-            summary=existing_summary,
+            summary_info=existing_summary_info,
             messages=(
                 messages
                 if existing_system_message is None
@@ -107,9 +123,9 @@ def summarize_messages(
             ),
         )
 
-    summary_value = existing_summary
+    summary_info = existing_summary_info
     total_summarized_messages = (
-        summary_value.total_summarized_messages if summary_value else 0
+        summary_info.total_summarized_messages if summary_info else 0
     )
 
     # Single pass through messages to count tokens and find cutoff point
@@ -134,9 +150,9 @@ def summarize_messages(
                 "Please increase the `max_tokens` or decrease the input size."
             )
 
-    # If we haven't exceeded max_tokens, return original messages
+    # If we haven't exceeded max_tokens, we don't need to summarize
+    # Note: we don't return here since we might still need to include the existing summary
     if n_tokens <= max_tokens:
-        # we don't need to summarize, but we might still need to include the existing summary
         messages_to_summarize = None
     else:
         messages_to_summarize = messages[total_summarized_messages : idx + 1]
@@ -156,13 +172,13 @@ def summarize_messages(
         messages_to_summarize.pop()
 
     if messages_to_summarize:
-        if existing_summary:
+        if existing_summary_info:
             summary_messages = cast(
                 ChatPromptValue,
                 existing_summary_prompt.invoke(
                     {
                         "messages": messages_to_summarize,
-                        "existing_summary": summary_value.summary,
+                        "existing_summary": summary_info.summary,
                     }
                 ),
             )
@@ -172,15 +188,15 @@ def summarize_messages(
                 initial_summary_prompt.invoke({"messages": messages_to_summarize}),
             )
 
-        summary_message_response = summarization_model.invoke(summary_messages.messages)
+        summary_message_response = model.invoke(summary_messages.messages)
         total_summarized_messages += len(messages_to_summarize)
-        summary_value = SummaryInfo(
+        summary_info = SummaryInfo(
             summary=summary_message_response.content,
             summarized_message_ids=[message.id for message in messages_to_summarize],
             total_summarized_messages=total_summarized_messages,
         )
 
-    if summary_value:
+    if summary_info:
         updated_messages = cast(
             ChatPromptValue,
             final_prompt.invoke(
@@ -188,19 +204,19 @@ def summarize_messages(
                     "system_message": [existing_system_message]
                     if existing_system_message
                     else [],
-                    "summary": summary_value.summary,
+                    "summary": summary_info.summary,
                     "messages": messages[total_summarized_messages:],
                 }
             ),
         )
         return SummarizationResult(
-            summary=summary_value,
+            summary_info=summary_info,
             messages=updated_messages.messages,
         )
     else:
         # no changes are needed
         return SummarizationResult(
-            summary=None,
+            summary_info=None,
             messages=(
                 messages
                 if existing_system_message is None
@@ -215,7 +231,7 @@ class SummarizationNode(RunnableCallable):
         *,
         model: BaseChatModel,
         max_tokens: int,
-        max_summary_tokens: int = 256,
+        max_summary_tokens: int = 1,
         token_counter: TokenCounter = len,
         initial_summary_prompt: ChatPromptTemplate = DEFAULT_INITIAL_SUMMARY_PROMPT,
         existing_summary_prompt: ChatPromptTemplate = DEFAULT_EXISTING_SUMMARY_PROMPT,
@@ -250,7 +266,7 @@ class SummarizationNode(RunnableCallable):
 
         summarization_result = summarize_messages(
             messages,
-            existing_summary=context.get("summary"),
+            existing_summary_info=context.get("summary_info"),
             model=self.model,
             max_tokens=self.max_tokens,
             max_summary_tokens=self.max_summary_tokens,
@@ -261,9 +277,9 @@ class SummarizationNode(RunnableCallable):
         )
 
         state_update = {self.output_messages_key: summarization_result.messages}
-        if summarization_result.summary:
+        if summarization_result.summary_info:
             state_update["context"] = {
                 **context,
-                "summary": summarization_result.summary,
+                "summary_info": summarization_result.summary_info,
             }
         return state_update
