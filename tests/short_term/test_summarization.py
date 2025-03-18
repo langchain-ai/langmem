@@ -38,21 +38,22 @@ def test_summarize_first_time():
     # Create enough messages to trigger summarization
     messages = [
         # these messages will be summarized
-        HumanMessage(content="Message 1"),
-        AIMessage(content="Response 1"),
-        HumanMessage(content="Message 2"),
-        AIMessage(content="Response 2"),
-        HumanMessage(content="Message 3"),
-        AIMessage(content="Response 3"),
+        HumanMessage(content="Message 1", id="1"),
+        AIMessage(content="Response 1", id="2"),
+        HumanMessage(content="Message 2", id="3"),
+        AIMessage(content="Response 2", id="4"),
+        HumanMessage(content="Message 3", id="5"),
+        AIMessage(content="Response 3", id="6"),
         # these messages will be added to the result post-summarization
-        HumanMessage(content="Message 4"),
-        AIMessage(content="Response 4"),
-        HumanMessage(content="Latest message"),
+        HumanMessage(content="Message 4", id="7"),
+        AIMessage(content="Response 4", id="8"),
+        HumanMessage(content="Latest message", id="9"),
     ]
 
     # Call the summarizer
     result = summarize_messages(
         messages,
+        existing_summary=None,
         model=model,
         token_counter=len,
         max_tokens=6,
@@ -75,15 +76,15 @@ def test_summarize_first_time():
     assert summary_value is not None
     assert summary_value.summary == "This is a summary of the conversation."
     assert (
-        summary_value.summarized_messages == messages[:6]
+        summary_value.summarized_message_ids == [msg.id for msg in messages[:6]]
     )  # All messages except the latest
 
     # Test subsequent invocation
     result = summarize_messages(
         messages,
+        existing_summary=summary_value,
         model=model,
         token_counter=len,
-        existing_summary=summary_value,
         max_tokens=6,
         max_summary_tokens=0,
     )
@@ -120,6 +121,7 @@ def test_with_system_message():
     # Call the summarizer
     result = summarize_messages(
         messages,
+        existing_summary=None,
         model=model,
         token_counter=len,
         max_tokens=6,
@@ -166,6 +168,7 @@ def test_subsequent_summarization():
     # First summarization
     result = summarize_messages(
         messages1,
+        existing_summary=None,
         model=model,
         token_counter=len,
         max_tokens=6,
@@ -191,8 +194,8 @@ def test_subsequent_summarization():
     # Second summarization
     result2 = summarize_messages(
         messages2,
-        model=model,
         existing_summary=summary_value,
+        model=model,
         token_counter=len,
         max_tokens=6,
         max_summary_tokens=0,
@@ -242,6 +245,7 @@ def test_with_empty_messages():
     # Call the summarizer
     result = summarize_messages(
         messages,
+        existing_summary=None,
         model=model,
         token_counter=count_non_empty_messages,
         max_tokens=6,
@@ -270,6 +274,7 @@ def test_large_number_of_messages():
     # Call the summarizer
     result = summarize_messages(
         messages,
+        existing_summary=None,
         model=model,
         token_counter=len,
         max_tokens=22,
@@ -314,6 +319,7 @@ def test_only_summarize_new_messages():
     # First summarization
     result = summarize_messages(
         messages1,
+        existing_summary=None,
         model=model,
         token_counter=len,
         max_tokens=6,
@@ -351,8 +357,8 @@ def test_only_summarize_new_messages():
     # Second summarization
     result2 = summarize_messages(
         messages2,
-        model=model,
         existing_summary=summary_value,
+        model=model,
         token_counter=len,
         max_tokens=6,
         max_summary_tokens=0,

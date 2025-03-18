@@ -1,9 +1,9 @@
-from typing import Callable, Optional, cast
+from dataclasses import dataclass
+from typing import Callable, cast
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.prompts.chat import ChatPromptTemplate, ChatPromptValue
-from pydantic import BaseModel
 
 TokenCounter = Callable[[list[BaseMessage]], int]
 
@@ -37,16 +37,18 @@ DEFAULT_FINAL_SUMMARY_PROMPT = ChatPromptTemplate.from_messages(
 )
 
 
-class SummaryInfo(BaseModel):
+@dataclass
+class SummaryInfo:
     # the summary of the conversation so far
     summary: str
-    # the messages that have been most recently summarized
-    summarized_messages: list[BaseMessage]
+    # the IDs of the messages that have been most recently summarized
+    summarized_message_ids: list[str]
     # keep track of the total number of messages that have been summarized thus far
     total_summarized_messages: int = 0
 
 
-class SummarizationResult(BaseModel):
+@dataclass
+class SummarizationResult:
     # the messages that will be returned to the user
     messages: list[BaseMessage]
     # SummaryInfo (empty if messages were not summarized)
@@ -56,12 +58,12 @@ class SummarizationResult(BaseModel):
 def summarize_messages(
     messages: list[BaseMessage],
     *,
+    existing_summary: SummaryInfo | None,
     model: BaseChatModel,
     max_tokens: int,
     max_summary_tokens: int = 256,
     # TODO: replaces this with approximate token counter
     token_counter: TokenCounter = len,
-    existing_summary: Optional[SummaryInfo] = None,
     initial_summary_prompt: ChatPromptTemplate = DEFAULT_INITIAL_SUMMARY_PROMPT,
     existing_summary_prompt: ChatPromptTemplate = DEFAULT_EXISTING_SUMMARY_PROMPT,
     final_prompt: ChatPromptTemplate = DEFAULT_FINAL_SUMMARY_PROMPT,
@@ -70,11 +72,11 @@ def summarize_messages(
 
     Args:
         messages: The list of messages to process.
+        existing_summary: Optional existing summary.
         max_tokens: Maximum number of tokens to return.
         model: The language model to use for generating summaries.
         max_summary_tokens: Maximum number of tokens to return from the summarization LLM.
         token_counter: Function to count tokens in a message. Defaults to approximate counting.
-        existing_summary: Optional existing summary.
         initial_summary_prompt: Prompt template for generating the first summary.
         existing_summary_prompt: Prompt template for updating an existing summary.
         final_prompt: Prompt template that combines summary with the remaining messages before returning.
@@ -173,7 +175,7 @@ def summarize_messages(
         total_summarized_messages += len(messages_to_summarize)
         summary_value = SummaryInfo(
             summary=summary_message_response.content,
-            summarized_messages=messages_to_summarize,
+            summarized_message_ids=[message.id for message in messages_to_summarize],
             total_summarized_messages=total_summarized_messages,
         )
 
