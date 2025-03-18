@@ -634,7 +634,9 @@ def create_memory_manager(
 
         # Set max steps for extraction and synthesis
         max_steps = 3
-        memories = await manager.ainvoke({"messages": conversation, "max_steps": max_steps})
+        memories = await manager.ainvoke(
+            {"messages": conversation, "max_steps": max_steps}
+        )
         print(memories)
         ```
     """

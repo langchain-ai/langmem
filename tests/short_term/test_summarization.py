@@ -53,7 +53,7 @@ def test_summarize_first_time():
     # Call the summarizer
     result = summarize_messages(
         messages,
-        existing_summary_info=None,
+        running_summary=None,
         model=model,
         token_counter=len,
         max_tokens=6,
@@ -72,7 +72,7 @@ def test_summarize_first_time():
     assert result.messages[1:] == messages[-3:]
 
     # Check that summary was stored in the store
-    summary_value = result.summary_info
+    summary_value = result.running_summary
     assert summary_value is not None
     assert summary_value.summary == "This is a summary of the conversation."
     assert (
@@ -82,7 +82,7 @@ def test_summarize_first_time():
     # Test subsequent invocation
     result = summarize_messages(
         messages,
-        existing_summary_info=summary_value,
+        running_summary=summary_value,
         model=model,
         token_counter=len,
         max_tokens=6,
@@ -92,7 +92,7 @@ def test_summarize_first_time():
     assert result.messages[0].type == "system"
     assert (
         result.messages[0].content
-        == "Summary of conversation earlier: This is a summary of the conversation."
+        == "Summary of the conversation so far: This is a summary of the conversation."
     )
     assert result.messages[1:] == messages[-3:]
 
@@ -121,7 +121,7 @@ def test_with_system_message():
     # Call the summarizer
     result = summarize_messages(
         messages,
-        existing_summary_info=None,
+        running_summary=None,
         model=model,
         token_counter=len,
         max_tokens=6,
@@ -168,7 +168,7 @@ def test_subsequent_summarization():
     # First summarization
     result = summarize_messages(
         messages1,
-        existing_summary_info=None,
+        running_summary=None,
         model=model,
         token_counter=len,
         max_tokens=6,
@@ -188,13 +188,13 @@ def test_subsequent_summarization():
         HumanMessage(content="Latest message 2", id="15"),
     ]
 
-    summary_value = result.summary_info
+    summary_value = result.running_summary
     assert summary_value.summary == "First summary of the conversation."
 
     # Second summarization
     result2 = summarize_messages(
         messages2,
-        existing_summary_info=summary_value,
+        running_summary=summary_value,
         model=model,
         token_counter=len,
         max_tokens=6,
@@ -218,7 +218,7 @@ def test_subsequent_summarization():
     assert result2.messages[-3:] == messages2[-3:]
 
     # Check that the updated summary was stored
-    summary_value = result2.summary_info
+    summary_value = result2.running_summary
     assert summary_value.summary == "Updated summary including new messages."
 
 
@@ -245,7 +245,7 @@ def test_with_empty_messages():
     # Call the summarizer
     result = summarize_messages(
         messages,
-        existing_summary_info=None,
+        running_summary=None,
         model=model,
         token_counter=count_non_empty_messages,
         max_tokens=6,
@@ -274,7 +274,7 @@ def test_large_number_of_messages():
     # Call the summarizer
     result = summarize_messages(
         messages,
-        existing_summary_info=None,
+        running_summary=None,
         model=model,
         token_counter=len,
         max_tokens=22,
@@ -319,7 +319,7 @@ def test_only_summarize_new_messages():
     # First summarization
     result = summarize_messages(
         messages1,
-        existing_summary_info=None,
+        running_summary=None,
         model=model,
         token_counter=len,
         max_tokens=6,
@@ -330,7 +330,7 @@ def test_only_summarize_new_messages():
     assert len(model.invoke_calls) == 1
 
     # Check that the summary was stored correctly
-    summary_value = result.summary_info
+    summary_value = result.running_summary
     assert summary_value.summary == "First summary of the conversation."
     assert len(summary_value.summarized_message_ids) == 6  # first 6 messages
 
@@ -357,7 +357,7 @@ def test_only_summarize_new_messages():
     # Second summarization
     result2 = summarize_messages(
         messages2,
-        existing_summary_info=summary_value,
+        running_summary=summary_value,
         model=model,
         token_counter=len,
         max_tokens=6,
@@ -373,7 +373,7 @@ def test_only_summarize_new_messages():
     # The last message in second_call_messages should be the prompt with the previous summary
     prompt_message = second_call_messages[-1]
     assert "First summary of the conversation" in prompt_message.content
-    assert "Extend the summary" in prompt_message.content
+    assert "Extend this summary" in prompt_message.content
 
     # Check that the messages sent to the model are only the new ones
     assert [msg.content for msg in second_call_messages[:-1]] == [
@@ -386,7 +386,7 @@ def test_only_summarize_new_messages():
     ]
 
     # Check that the updated summary was stored
-    updated_summary_value = result2.summary_info
+    updated_summary_value = result2.running_summary
     assert (
         updated_summary_value.summary
         == "Updated summary including only new messages."
