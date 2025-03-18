@@ -76,7 +76,7 @@ def test_summarize_first_time():
     assert summary_value is not None
     assert summary_value.summary == "This is a summary of the conversation."
     assert (
-        summary_value.summarized_message_ids == [msg.id for msg in messages[:6]]
+        summary_value.summarized_message_ids == set(msg.id for msg in messages[:6])
     )  # All messages except the latest
 
     # Test subsequent invocation
@@ -104,18 +104,18 @@ def test_with_system_message():
     # Create messages with a system message
     messages = [
         # this is counted towards the max_tokens
-        SystemMessage(content="You are a helpful assistant."),
+        SystemMessage(content="You are a helpful assistant.", id="0"),
         # these messages will be summarized
-        HumanMessage(content="Message 1"),
-        AIMessage(content="Response 1"),
-        HumanMessage(content="Message 2"),
-        AIMessage(content="Response 2"),
+        HumanMessage(content="Message 1", id="1"),
+        AIMessage(content="Response 1", id="2"),
+        HumanMessage(content="Message 2", id="3"),
+        AIMessage(content="Response 2", id="4"),
         # these messages will be added to the result post-summarization
-        HumanMessage(content="Message 3"),
-        AIMessage(content="Response 3"),
-        HumanMessage(content="Message 4"),
-        AIMessage(content="Response 4"),
-        HumanMessage(content="Latest message"),
+        HumanMessage(content="Message 3", id="5"),
+        AIMessage(content="Response 3", id="6"),
+        HumanMessage(content="Message 4", id="7"),
+        AIMessage(content="Response 4", id="8"),
+        HumanMessage(content="Latest message", id="9"),
     ]
 
     # Call the summarizer
@@ -156,13 +156,13 @@ def test_subsequent_summarization():
 
     # First batch of messages
     messages1 = [
-        HumanMessage(content="Message 1"),
-        AIMessage(content="Response 1"),
-        HumanMessage(content="Message 2"),
-        AIMessage(content="Response 2"),
-        HumanMessage(content="Message 3"),
-        AIMessage(content="Response 3"),
-        HumanMessage(content="Latest message 1"),
+        HumanMessage(content="Message 1", id="1"),
+        AIMessage(content="Response 1", id="2"),
+        HumanMessage(content="Message 2", id="3"),
+        AIMessage(content="Response 2", id="4"),
+        HumanMessage(content="Message 3", id="5"),
+        AIMessage(content="Response 3", id="6"),
+        HumanMessage(content="Latest message 1", id="7"),
     ]
 
     # First summarization
@@ -178,14 +178,14 @@ def test_subsequent_summarization():
     # Add more messages to trigger another summarization
     # We need to add at least max_messages (4) new messages
     messages2 = messages1 + [
-        AIMessage(content="Response to latest 1"),
-        HumanMessage(content="Message 4"),
-        AIMessage(content="Response 4"),
-        HumanMessage(content="Message 5"),
-        AIMessage(content="Response 5"),
-        HumanMessage(content="Message 6"),
-        AIMessage(content="Response 6"),
-        HumanMessage(content="Latest message 2"),
+        AIMessage(content="Response to latest 1", id="8"),
+        HumanMessage(content="Message 4", id="9"),
+        AIMessage(content="Response 4", id="10"),
+        HumanMessage(content="Message 5", id="11"),
+        AIMessage(content="Response 5", id="12"),
+        HumanMessage(content="Message 6", id="13"),
+        AIMessage(content="Response 6", id="14"),
+        HumanMessage(content="Latest message 2", id="15"),
     ]
 
     summary_value = result.summary_info
@@ -231,15 +231,15 @@ def test_with_empty_messages():
 
     # Create messages with some empty content
     messages = [
-        HumanMessage(content=""),
-        AIMessage(content="Response 1"),
-        HumanMessage(content="Message 2"),
-        AIMessage(content=""),
-        HumanMessage(content="Message 3"),
-        AIMessage(content="Response 3"),
-        HumanMessage(content="Message 4"),
-        AIMessage(content="Response 4"),
-        HumanMessage(content="Latest message"),
+        HumanMessage(content="", id="1"),
+        AIMessage(content="Response 1", id="2"),
+        HumanMessage(content="Message 2", id="3"),
+        AIMessage(content="", id="4"),
+        HumanMessage(content="Message 3", id="5"),
+        AIMessage(content="Response 3", id="6"),
+        HumanMessage(content="Message 4", id="7"),
+        AIMessage(content="Response 4", id="8"),
+        HumanMessage(content="Latest message", id="9"),
     ]
 
     # Call the summarizer
@@ -265,11 +265,11 @@ def test_large_number_of_messages():
     # Create a large number of messages
     messages = []
     for i in range(20):  # 20 pairs of messages = 40 messages total
-        messages.append(HumanMessage(content=f"Human message {i}"))
-        messages.append(AIMessage(content=f"AI response {i}"))
+        messages.append(HumanMessage(content=f"Human message {i}", id=f"h{i}"))
+        messages.append(AIMessage(content=f"AI response {i}", id=f"a{i}"))
 
     # Add one final message
-    messages.append(HumanMessage(content="Final message"))
+    messages.append(HumanMessage(content="Final message", id=f"h{len(messages)}"))
 
     # Call the summarizer
     result = summarize_messages(
@@ -306,14 +306,14 @@ def test_only_summarize_new_messages():
     # First batch of messages
     messages1 = [
         # first 18 tokens will be summarized
-        HumanMessage(content="Message 1"),
-        AIMessage(content="Response 1"),
-        HumanMessage(content="Message 2"),
-        AIMessage(content="Response 2"),
-        HumanMessage(content="Message 3"),
-        AIMessage(content="Response 3"),
+        HumanMessage(content="Message 1", id="1"),
+        AIMessage(content="Response 1", id="2"),
+        HumanMessage(content="Message 2", id="3"),
+        AIMessage(content="Response 2", id="4"),
+        HumanMessage(content="Message 3", id="5"),
+        AIMessage(content="Response 3", id="6"),
         # this will be propagated to the next summarization
-        HumanMessage(content="Latest message 1"),
+        HumanMessage(content="Latest message 1", id="7"),
     ]
 
     # First summarization
@@ -332,7 +332,7 @@ def test_only_summarize_new_messages():
     # Check that the summary was stored correctly
     summary_value = result.summary_info
     assert summary_value.summary == "First summary of the conversation."
-    assert summary_value.total_summarized_messages == 6  # first 6 messages
+    assert len(summary_value.summarized_message_ids) == 6  # first 6 messages
 
     # Add more messages to trigger another summarization
     # We need to add at least max_messages (4) new messages
@@ -342,13 +342,13 @@ def test_only_summarize_new_messages():
     # Add enough new messages to trigger summarization (at least max_messages)
     new_messages = [
         # these will be summarized
-        AIMessage(content="Response to latest 1"),
-        HumanMessage(content="Message 4"),
-        AIMessage(content="Response 4"),
-        HumanMessage(content="Message 5"),
-        AIMessage(content="Response 5"),
+        AIMessage(content="Response to latest 1", id="8"),
+        HumanMessage(content="Message 4", id="9"),
+        AIMessage(content="Response 4", id="10"),
+        HumanMessage(content="Message 5", id="11"),
+        AIMessage(content="Response 5", id="12"),
         # these will be propagated to the next summarization
-        HumanMessage(content="Latest message 2"),
+        HumanMessage(content="Latest message 2", id="13"),
     ]
 
     # Add all but the last message to messages_to_summarize
