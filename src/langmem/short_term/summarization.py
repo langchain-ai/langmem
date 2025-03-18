@@ -1,9 +1,11 @@
 from dataclasses import dataclass
-from typing import Callable, cast
+from typing import Any, Callable, cast
 
+from pydantic import BaseModel
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.prompts.chat import ChatPromptTemplate, ChatPromptValue
+from langgraph.utils.runnable import RunnableCallable
 
 TokenCounter = Callable[[list[BaseMessage]], int]
 
@@ -61,14 +63,13 @@ def summarize_messages(
     existing_summary: SummaryInfo | None,
     model: BaseChatModel,
     max_tokens: int,
-    max_summary_tokens: int = 256,
-    # TODO: replaces this with approximate token counter
+    max_summary_tokens: int = 1,
     token_counter: TokenCounter = len,
     initial_summary_prompt: ChatPromptTemplate = DEFAULT_INITIAL_SUMMARY_PROMPT,
     existing_summary_prompt: ChatPromptTemplate = DEFAULT_EXISTING_SUMMARY_PROMPT,
     final_prompt: ChatPromptTemplate = DEFAULT_FINAL_SUMMARY_PROMPT,
 ) -> SummarizationResult:
-    """A memory handler that summarizes messages when they exceed a token limit and replaces summarized messages with a single summary message.
+    """Summarize messages when they exceed a token limit and replace them with a single summary message.
 
     Args:
         messages: The list of messages to process.
@@ -206,3 +207,63 @@ def summarize_messages(
                 else [existing_system_message] + messages
             ),
         )
+
+
+class SummarizationNode(RunnableCallable):
+    def __init__(
+        self,
+        *,
+        model: BaseChatModel,
+        max_tokens: int,
+        max_summary_tokens: int = 256,
+        token_counter: TokenCounter = len,
+        initial_summary_prompt: ChatPromptTemplate = DEFAULT_INITIAL_SUMMARY_PROMPT,
+        existing_summary_prompt: ChatPromptTemplate = DEFAULT_EXISTING_SUMMARY_PROMPT,
+        final_prompt: ChatPromptTemplate = DEFAULT_FINAL_SUMMARY_PROMPT,
+        messages_key: str = "messages",
+        output_messages_key: str = "messages",
+        name: str = "summarization",
+    ) -> None:
+        super().__init__(self._func, name=name, trace=False)
+        self.model = model
+        self.max_tokens = max_tokens
+        self.max_summary_tokens = max_summary_tokens
+        self.token_counter = token_counter
+        self.initial_summary_prompt = initial_summary_prompt
+        self.existing_summary_prompt = existing_summary_prompt
+        self.final_prompt = final_prompt
+        self.messages_key = messages_key
+        self.output_messages_key = output_messages_key
+
+    def _func(self, input: dict[str, Any] | BaseModel) -> dict[str, Any]:
+        if isinstance(input, dict):
+            messages = input.get(self.messages_key)
+            context = input.get("context", {})
+        elif isinstance(input, BaseModel):
+            messages = getattr(input, self.messages_key, None)
+            context = getattr(input, "context", {})
+        else:
+            raise ValueError(f"Invalid input type: {type(input)}")
+
+        if messages is None:
+            raise ValueError("Missing required field `messages` in the input.")
+
+        summarization_result = summarize_messages(
+            messages,
+            existing_summary=context.get("summary"),
+            model=self.model,
+            max_tokens=self.max_tokens,
+            max_summary_tokens=self.max_summary_tokens,
+            token_counter=self.token_counter,
+            initial_summary_prompt=self.initial_summary_prompt,
+            existing_summary_prompt=self.existing_summary_prompt,
+            final_prompt=self.final_prompt,
+        )
+
+        state_update = {self.output_messages_key: summarization_result.messages}
+        if summarization_result.summary:
+            state_update["context"] = {
+                **context,
+                "summary": summarization_result.summary,
+            }
+        return state_update
