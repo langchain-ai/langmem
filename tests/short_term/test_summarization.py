@@ -6,25 +6,23 @@ from langchain_core.messages import (
     HumanMessage,
     SystemMessage,
 )
+from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
 
 from langmem.short_term.summarization import summarize_messages
 
 
-class MockChatModel:
+class FakeChatModel(FakeMessagesListChatModel):
     """Mock chat model for testing the summarizer."""
+    invoke_calls: list[list[BaseMessage]] = []
 
-    def __init__(self, responses=None):
+    def __init__(self, responses: list[BaseMessage]):
         """Initialize with predefined responses."""
-        self.responses = responses or ["This is a mock summary."]
-        self.response_index = 0
-        self.invoke_calls = []
+        super().__init__(responses=responses or [AIMessage(content="This is a mock summary.")])
 
-    def invoke(self, messages: List[BaseMessage]) -> AIMessage:
+    def invoke(self, input: List[BaseMessage]) -> AIMessage:
         """Mock invoke method that returns predefined responses."""
-        self.invoke_calls.append(messages)
-        response = self.responses[self.response_index % len(self.responses)]
-        self.response_index += 1
-        return AIMessage(content=response)
+        self.invoke_calls.append(input)
+        return super().invoke(input)
 
     def bind(self, **kwargs):
         """Mock bind method that returns self."""
@@ -33,7 +31,7 @@ class MockChatModel:
 
 def test_summarize_first_time():
     """Test summarization when it happens for the first time."""
-    model = MockChatModel(responses=["This is a summary of the conversation."])
+    model = FakeChatModel(responses=[AIMessage(content="This is a summary of the conversation.")])
 
     # Create enough messages to trigger summarization
     messages = [
@@ -99,7 +97,7 @@ def test_summarize_first_time():
 
 def test_with_system_message():
     """Test summarization with a system message present."""
-    model = MockChatModel(responses=["Summary with system message present."])
+    model = FakeChatModel(responses=[AIMessage(content="Summary with system message present.")])
 
     # Create messages with a system message
     messages = [
@@ -147,10 +145,10 @@ def test_with_system_message():
 
 def test_subsequent_summarization():
     """Test that subsequent summarizations build on previous summaries."""
-    model = MockChatModel(
+    model = FakeChatModel(
         responses=[
-            "First summary of the conversation.",
-            "Updated summary including new messages.",
+            AIMessage(content="First summary of the conversation."),
+            AIMessage(content="Updated summary including new messages."),
         ]
     )
 
@@ -224,7 +222,7 @@ def test_subsequent_summarization():
 
 def test_with_empty_messages():
     """Test summarization with empty message content."""
-    model = MockChatModel(responses=["Summary with empty messages."])
+    model = FakeChatModel(responses=[AIMessage(content="Summary with empty messages.")])
 
     def count_non_empty_messages(messages: list[BaseMessage]) -> int:
         return sum(1 for msg in messages if msg.content)
@@ -260,7 +258,7 @@ def test_with_empty_messages():
 
 def test_large_number_of_messages():
     """Test summarization with a large number of messages."""
-    model = MockChatModel(responses=["Summary of many messages."])
+    model = FakeChatModel(responses=[AIMessage(content="Summary of many messages.")])
 
     # Create a large number of messages
     messages = []
@@ -295,10 +293,10 @@ def test_large_number_of_messages():
 
 def test_only_summarize_new_messages():
     """Test that only new messages are summarized, not all messages."""
-    model = MockChatModel(
+    model = FakeChatModel(
         responses=[
-            "First summary of the conversation.",
-            "Updated summary including only new messages.",
+            AIMessage(content="First summary of the conversation."),
+            AIMessage(content="Updated summary including only new messages."),
         ]
     )
 
