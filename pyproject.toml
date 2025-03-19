@@ -3,7 +3,7 @@ name = "langmem"
 version = "0.0.15"
 description = "Prebuilt utilities for memory management and retrieval."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = { file = "LICENSE" }
 dependencies = [
     "langchain>=0.3.15",
