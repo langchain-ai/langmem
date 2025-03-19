@@ -112,6 +112,46 @@ def summarize_messages(
             - running_summary: RunningSummary object
                 - summary: text of the latest summary
                 - summarized_message_ids: set of message IDs that were previously summarized
+
+    Example:
+        ```pycon
+        >>> from langgraph.graph import StateGraph, START, MessagesState
+        >>> from langgraph.checkpoint.memory import InMemorySaver
+        >>> from langmem.short_term.summarization import summarize_messages, RunningSummary
+        >>> from langchain_openai import ChatOpenAI
+
+        >>> model = ChatOpenAI(model="gpt-4o")
+        >>> summarization_model = model.bind(max_tokens=128)
+
+        >>> class SummaryState(MessagesState):
+        ...     summary: RunningSummary | None
+
+        >>> def call_model(state):
+        ...     summarization_result = summarize_messages(
+        ...         state["messages"],
+        ...         running_summary=state.get("summary"),
+        ...         model=summarization_model,
+        ...         max_tokens=256,
+        ...         max_summary_tokens=128
+        ...     )
+        ...     response = model.invoke(summarization_result.messages)
+        ...     state_update = {"messages": [response]}
+        ...     if summarization_result.running_summary:
+        ...         state_update["summary"] = summarization_result.running_summary
+        ...     return state_update
+
+        >>> checkpointer = InMemorySaver()
+        >>> workflow = StateGraph(SummaryState)
+        >>> workflow.add_node(call_model)
+        >>> workflow.add_edge(START, "call_model")
+        >>> graph = workflow.compile(checkpointer=checkpointer)
+
+        >>> config = {"configurable": {"thread_id": "1"}}
+        >>> graph.invoke({"messages": "hi, my name is bob"}, config)
+        >>> graph.invoke({"messages": "write a short poem about cats"}, config)
+        >>> graph.invoke({"messages": "now do the same but for dogs"}, config)
+        >>> graph.invoke({"messages": "what's my name?"}, config)
+        ```
     """
     if max_summary_tokens >= max_tokens:
         raise ValueError("`max_summary_tokens` must be less than `max_tokens`.")
@@ -304,6 +344,51 @@ class SummarizationNode(RunnableCallable):
                     "context": {"running_summary": <RunningSummary object>}
                 }
                 ```
+
+        Example:
+
+            ```pycon
+            >>> from typing import Any, TypedDict
+            >>> from langchain_openai import ChatOpenAI
+            >>> from langchain_core.messages import AnyMessage
+            >>> from langgraph.graph import StateGraph, START, MessagesState
+            >>> from langgraph.checkpoint.memory import InMemorySaver
+            >>> from langmem.short_term.summarization import SummarizationNode, RunningSummary
+            >>>
+            >>> model = ChatOpenAI(model="gpt-4o")
+            >>> summarization_model = model.bind(max_tokens=128)
+            >>>
+            >>> class State(MessagesState):
+            ...     context: dict[str, Any]
+            ...
+            >>> class LLMInputState(TypedDict):
+            ...     summarized_messages: list[AnyMessage]
+            ...     context: dict[str, Any]
+            ...
+            >>> summarization_node = SummarizationNode(
+            ...     model=summarization_model,
+            ...     max_tokens=256,
+            ...     max_summary_tokens=128,
+            ... )
+            >>>
+            >>> def call_model(state: LLMInputState):
+            ...     response = model.invoke(state["summarized_messages"])
+            ...     return {"messages": [response]}
+            ...
+            >>> checkpointer = InMemorySaver()
+            >>> workflow = StateGraph(State)
+            >>> workflow.add_node(call_model)
+            >>> workflow.add_node("summarize", summarization_node)
+            >>> workflow.add_edge(START, "summarize")
+            >>> workflow.add_edge("summarize", "call_model")
+            >>> graph = workflow.compile(checkpointer=checkpointer)
+            >>>
+            >>> config = {"configurable": {"thread_id": "1"}}
+            >>> graph.invoke({"messages": "hi, my name is bob"}, config)
+            >>> graph.invoke({"messages": "write a short poem about cats"}, config)
+            >>> graph.invoke({"messages": "now do the same but for dogs"}, config)
+            >>> graph.invoke({"messages": "what's my name?"}, config)
+            ```
         """
         super().__init__(self._func, name=name, trace=False)
         self.model = model
