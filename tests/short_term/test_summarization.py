@@ -55,8 +55,8 @@ def test_summarize_too_many_tokens():
     # - max total tokens = 8
     with pytest.raises(ValueError):
         summarize_messages(
-            # will raise if > 8
-            [SystemMessage(content="You are a helpful assistant.", id="system")] + [AIMessage(content=f"Message {i}", id=f"{i}") for i in range(8)],
+            # will raise if > 8 (excluding system message)
+            [SystemMessage(content="You are a helpful assistant.", id="system")] + [AIMessage(content=f"Message {i}", id=f"{i}") for i in range(9)],
             running_summary=None,
             model=model,
             token_counter=len,

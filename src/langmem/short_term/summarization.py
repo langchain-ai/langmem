@@ -2,7 +2,13 @@ from dataclasses import dataclass
 from typing import Any, Callable, Iterable, cast
 
 from langchain_core.language_models import LanguageModelLike
-from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, SystemMessage, MessageLikeRepresentation
+from langchain_core.messages import (
+    AIMessage,
+    AnyMessage,
+    HumanMessage,
+    MessageLikeRepresentation,
+    SystemMessage,
+)
 from langchain_core.messages.utils import count_tokens_approximately
 from langchain_core.prompts.chat import ChatPromptTemplate, ChatPromptValue
 from langgraph.utils.runnable import RunnableCallable
@@ -192,7 +198,9 @@ def summarize_messages(
     if running_summary:
         summarized_message_ids = running_summary.summarized_message_ids
         # Adjust the summarization token budget to account for the previous summary
-        max_tokens_to_summarize -= token_counter([SystemMessage(content=running_summary.summary)])
+        max_tokens_to_summarize -= token_counter(
+            [SystemMessage(content=running_summary.summary)]
+        )
 
     total_summarized_messages = len(summarized_message_ids)
 
@@ -221,32 +229,43 @@ def summarize_messages(
             idx = i
 
         # Check if we've exceeded the absolute maximum
-        if n_tokens >= max_total_tokens:
+        if n_tokens > max_total_tokens:
             raise ValueError(
-                f"summarize_messages cannot handle more than {max_total_tokens} tokens. "
+                f"`summarize_messages` cannot handle more than {max_total_tokens} tokens: "
+                f"resulting message history will exceed max_tokens limit ({max_tokens}). "
                 "Please adjust `max_tokens` / `max_summary_tokens` or decrease the input size."
             )
 
     # If we haven't exceeded max_tokens, we don't need to summarize
     # Note: we don't return here since we might still need to include the existing summary
     if n_tokens <= max_tokens:
-        messages_to_summarize = None
+        messages_to_summarize = []
     else:
         messages_to_summarize = messages[total_summarized_messages : idx + 1]
 
     # If the last message is:
-    # (1) an AI message with tool calls - remove it
+    # (1) an AI message with tool calls - remove it, if possible,
     #   to avoid issues w/ the LLM provider (as it will lack a corresponding tool message)
-    # (2) a human message - remove it,
+    # (2) a human message - remove it, if possible,
     #   since it is a user input and it doesn't make sense to summarize it without a corresponding AI message
-    while messages_to_summarize and (
-        (
-            isinstance(messages_to_summarize[-1], AIMessage)
-            and messages_to_summarize[-1].tool_calls
+    while (
+        messages_to_summarize
+        and n_tokens - len(messages_to_summarize) <= max_remaining_tokens
+        and (
+            (
+                isinstance(messages_to_summarize[-1], AIMessage)
+                and messages_to_summarize[-1].tool_calls
+            )
+            or isinstance(messages_to_summarize[-1], HumanMessage)
         )
-        or isinstance(messages_to_summarize[-1], HumanMessage)
     ):
         messages_to_summarize.pop()
+
+    if n_tokens - len(messages_to_summarize) > max_remaining_tokens:
+        raise ValueError(
+            f"Resulting message history will exceed max_tokens limit ({max_tokens}). "
+            "Please adjust `max_tokens` / `max_summary_tokens` or decrease the input size."
+        )
 
     if messages_to_summarize:
         if running_summary:
