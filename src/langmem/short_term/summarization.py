@@ -337,17 +337,25 @@ class SummarizationNode(RunnableCallable):
         Args:
             model: The language model to use for generating summaries.
             max_tokens: Maximum number of tokens to return.
-                Will be used as a threshold for triggering the summarization: once the cumulative number of message tokens
+                Will also be used as a threshold for triggering the summarization: once the cumulative number of message tokens
                 reaches max_tokens, all messages within max_tokens will be summarized.
 
                 !!! Note
 
                     If the last message within max_tokens is an AI message with tool calls or a human message,
                     this message will not be summarized, and instead will be added to the returned messages.
-            max_summary_tokens: Maximum number of tokens to return from the summarization LLM.
+            max_summary_tokens: Maximum number of tokens to budget for the summary.
+
+                !!! Note
+
+                    This parameter is not passed to the summary-generating LLM to limit the length of the summary.
+                    It is only used for correctly estimating the threshold for summarization.
+                    If you want to enforce it, you would need to pass `model.bind(max_tokens=max_summary_tokens)`
+                    as the `model` parameter to this function.
             token_counter: Function to count tokens in a message. Defaults to approximate counting.
+                For more accurate counts you can use `model.get_num_tokens_from_messages`.
             initial_summary_prompt: Prompt template for generating the first summary.
-            existing_summary_prompt: Prompt template for updating an existing summary.
+            existing_summary_prompt: Prompt template for updating an existing (running) summary.
             final_prompt: Prompt template that combines summary with the remaining messages before returning.
             input_messages_key: Key in the input graph state that contains the list of messages to summarize.
             output_messages_key: Key in the state update that contains the list of updated messages.

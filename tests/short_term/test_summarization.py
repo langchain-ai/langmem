@@ -418,25 +418,25 @@ def test_subsequent_summarization_with_new_messages():
     assert len(updated_summary_value.summarized_message_ids) == len(messages2) - 5
 
 
-def test_ai_with_trailing_tool_calls_not_summarized():
+def test_last_ai_with_tool_calls_not_summarized():
     model = FakeChatModel(responses=[AIMessage(content="Summary without tool calls.")])
 
     messages = [
         # these will be summarized
         HumanMessage(content="Message 1", id="1"),
-        AIMessage(content="Response 1", id="2"),
-        HumanMessage(content="Message 2", id="3"),
+        AIMessage(
+            content="",
+            id="2",
+            tool_calls=[{"name": "tool_1", "id": "1", "args": {"arg1": "value1"}}],
+        ),
+        ToolMessage(content="Call other tool", tool_call_id="1", id="3"),
+        # these will be kept in the final result
         AIMessage(
             content="",
             id="4",
-            tool_calls=[{"name": "tool_1", "id": "1", "args": {"arg1": "value1"}}],
-        ),
-        ToolMessage(content="Call other tool", tool_call_id="1", id="5"),
-        AIMessage(
-            content="",
-            id="6",
             tool_calls=[{"name": "tool_2", "id": "2", "args": {"arg1": "value1"}}],
         ),
+        HumanMessage(content="Message 2", id="5"),
     ]
 
     # Call the summarizer
@@ -445,16 +445,50 @@ def test_ai_with_trailing_tool_calls_not_summarized():
         running_summary=None,
         model=model,
         token_counter=len,
-        max_tokens=5,
+        max_tokens=4,
         max_summary_tokens=1,
     )
 
     # Check that the AI message with tool calls wasn't summarized
-    assert len(result.messages) == 2
+    assert len(result.messages) == 3
     assert result.messages[0].type == "system"  # Summary
-    assert result.messages[1] == messages[-1]  # The AI message with tool calls
+    assert result.messages[-2:] == messages[-2:]  # The AI message with tool calls
     assert result.running_summary.summarized_message_ids == set(
-        msg.id for msg in messages[:-1]
+        msg.id for msg in messages[:-2]
+    )
+
+
+def test_last_human_message_not_summarized():
+    model = FakeChatModel(
+        responses=[AIMessage(content="Summary without last human message.")]
+    )
+
+    # Create messages where the last one is from human
+    messages = [
+        AIMessage(content="Response 1", id="1"),
+        HumanMessage(content="Message 2", id="2"),
+        AIMessage(content="Response 2", id="3"),
+        # these will be kept in the final result
+        HumanMessage(content="Message 3", id="4"),
+        AIMessage(content="Response 3", id="5"),
+    ]
+
+    # Call the summarizer
+    result = summarize_messages(
+        messages,
+        running_summary=None,
+        model=model,
+        token_counter=len,
+        max_tokens=4,  # This would normally include all messages
+        max_summary_tokens=1,
+    )
+
+    # Check that the last human message wasn't summarized
+    assert len(result.messages) == 3
+    assert result.messages[0].type == "system"  # Summary
+    assert result.messages[-2:] == messages[-2:]  # The last human message
+    assert result.running_summary.summarized_message_ids == set(
+        msg.id for msg in messages[:-2]
     )
 
 
