@@ -1,8 +1,9 @@
 from dataclasses import dataclass
 from typing import Any, Callable, cast
 
-from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.language_models import LanguageModelLike
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, SystemMessage
+from langchain_core.messages.utils import count_tokens_approximately
 from langchain_core.prompts.chat import ChatPromptTemplate, ChatPromptValue
 from langgraph.utils.runnable import RunnableCallable
 from pydantic import BaseModel
@@ -70,11 +71,10 @@ def summarize_messages(
     messages: list[AnyMessage],
     *,
     running_summary: RunningSummary | None,
-    model: BaseChatModel,
+    model: LanguageModelLike,
     max_tokens: int,
-    max_summary_tokens: int = 1,
-    # TODO: replace this with the approximate token counter
-    token_counter: TokenCounter = len,
+    max_summary_tokens: int = 256,
+    token_counter: TokenCounter = count_tokens_approximately,
     initial_summary_prompt: ChatPromptTemplate = DEFAULT_INITIAL_SUMMARY_PROMPT,
     existing_summary_prompt: ChatPromptTemplate = DEFAULT_EXISTING_SUMMARY_PROMPT,
     final_prompt: ChatPromptTemplate = DEFAULT_FINAL_SUMMARY_PROMPT,
@@ -100,7 +100,14 @@ def summarize_messages(
 
                 If the last message within max_tokens is an AI message with tool calls or a human message,
                 this message will not be summarized, and instead will be added to the returned messages.
-        max_summary_tokens: Maximum number of tokens to return from the summarization LLM.
+        max_summary_tokens: Maximum number of tokens to budget for the summary.
+
+            !!! Note
+
+                This parameter is not passed to the summary-generating LLM to limit the length of the summary.
+                It is only used for correctly estimating the threshold for summarization.
+                If you want to enforce it, you would need to pass `model.bind(max_tokens=max_summary_tokens)`
+                as the `model` parameter to this function.
         token_counter: Function to count tokens in a message. Defaults to approximate counting.
         initial_summary_prompt: Prompt template for generating the first summary.
         existing_summary_prompt: Prompt template for updating an existing summary.
@@ -176,16 +183,17 @@ def summarize_messages(
             ),
         )
 
+    # Get previously summarized messages, if any
     summarized_message_ids = (
         running_summary.summarized_message_ids if running_summary else set()
     )
     total_summarized_messages = len(summarized_message_ids)
 
-    # Single pass through messages to count tokens and find cutoff point
+    # Go through messages to count tokens and find cutoff point
     n_tokens = 0
     idx = max(0, total_summarized_messages - 1)
-    # we need to output messages that fit within max_tokens.
-    # assuming that the summarization LLM also needs at most max_tokens
+    # We need to output messages that fit within max_tokens.
+    # Assuming that the summarization LLM also needs at most max_tokens
     # that will be turned into at most max_summary_tokens, you can try
     # to process at most max_tokens * 2 - max_summary_tokens
     max_total_tokens = max_tokens * 2 - max_summary_tokens
@@ -209,7 +217,7 @@ def summarize_messages(
         if n_tokens >= max_total_tokens:
             raise ValueError(
                 f"summarize_messages cannot handle more than {max_total_tokens} tokens. "
-                "Please increase the `max_tokens` or decrease the input size."
+                "Please adjust `max_tokens` / `max_summary_tokens` or decrease the input size."
             )
 
     # If we haven't exceeded max_tokens, we don't need to summarize
@@ -293,7 +301,7 @@ class SummarizationNode(RunnableCallable):
     def __init__(
         self,
         *,
-        model: BaseChatModel,
+        model: LanguageModelLike,
         max_tokens: int,
         max_summary_tokens: int = 1,
         token_counter: TokenCounter = len,
