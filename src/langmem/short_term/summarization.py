@@ -215,7 +215,7 @@ def summarize_messages(
     for i in range(total_summarized_messages, len(messages)):
         message = messages[i]
         if message.id is None:
-            raise ValueError("Messages are require to have ID field.")
+            raise ValueError("Messages are required to have ID field.")
 
         if message.id in summarized_message_ids:
             raise ValueError(
@@ -224,7 +224,7 @@ def summarize_messages(
 
         n_tokens += token_counter([message])
 
-        # If we're still under max_tokens, update the potential cutoff point
+        # If we're still under max_tokens_to_summarize, update the potential cutoff point
         if n_tokens <= max_tokens_to_summarize:
             idx = i
 
@@ -244,28 +244,18 @@ def summarize_messages(
         messages_to_summarize = messages[total_summarized_messages : idx + 1]
 
     # If the last message is:
-    # (1) an AI message with tool calls - remove it, if possible,
+    # (1) an AI message with tool calls - remove it
     #   to avoid issues w/ the LLM provider (as it will lack a corresponding tool message)
-    # (2) a human message - remove it, if possible,
+    # (2) a human message - remove it,
     #   since it is a user input and it doesn't make sense to summarize it without a corresponding AI message
-    while (
-        messages_to_summarize
-        and n_tokens - len(messages_to_summarize) <= max_remaining_tokens
-        and (
-            (
-                isinstance(messages_to_summarize[-1], AIMessage)
-                and messages_to_summarize[-1].tool_calls
-            )
-            or isinstance(messages_to_summarize[-1], HumanMessage)
+    while messages_to_summarize and (
+        (
+            isinstance(messages_to_summarize[-1], AIMessage)
+            and messages_to_summarize[-1].tool_calls
         )
+        or isinstance(messages_to_summarize[-1], HumanMessage)
     ):
         messages_to_summarize.pop()
-
-    if n_tokens - len(messages_to_summarize) > max_remaining_tokens:
-        raise ValueError(
-            f"Resulting message history will exceed max_tokens limit ({max_tokens}). "
-            "Please adjust `max_tokens` / `max_summary_tokens` or decrease the input size."
-        )
 
     if messages_to_summarize:
         if running_summary:

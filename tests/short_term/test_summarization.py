@@ -6,10 +6,12 @@ from langchain_core.messages import (
     BaseMessage,
     HumanMessage,
     SystemMessage,
+    ToolMessage,
 )
 from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
+from langchain_core.messages.utils import count_tokens_approximately
 
-from langmem.short_term.summarization import summarize_messages, RunningSummary
+from langmem.short_term.summarization import summarize_messages
 
 
 class FakeChatModel(FakeMessagesListChatModel):
@@ -31,6 +33,63 @@ class FakeChatModel(FakeMessagesListChatModel):
     def bind(self, **kwargs):
         """Mock bind method that returns self."""
         return self
+
+
+def test_empty_input():
+    model = FakeChatModel(responses=[])
+
+    # Test with empty message list
+    result = summarize_messages(
+        [],
+        running_summary=None,
+        model=model,
+        max_tokens=10,
+        max_summary_tokens=1,
+    )
+
+    # Check that no summarization occurred
+    assert result.running_summary is None
+    assert result.messages == []
+    assert len(model.invoke_calls) == 0
+
+    # Test with only system message
+    system_msg = SystemMessage(content="You are a helpful assistant.", id="sys")
+    result = summarize_messages(
+        [system_msg],
+        running_summary=None,
+        model=model,
+        max_tokens=10,
+        max_summary_tokens=1,
+    )
+
+    # Check that no summarization occurred
+    assert result.running_summary is None
+    assert result.messages == [system_msg]
+
+
+def test_no_summarization_needed():
+    model = FakeChatModel(responses=[])
+
+    messages = [
+        HumanMessage(content="Message 1", id="1"),
+        AIMessage(content="Response 1", id="2"),
+        HumanMessage(content="Message 2", id="3"),
+    ]
+
+    # Tokens are under the limit, so no summarization should occur
+    result = summarize_messages(
+        messages,
+        running_summary=None,
+        model=model,
+        token_counter=len,
+        max_tokens=10,
+        max_summary_tokens=1,
+    )
+
+    # Check that no summarization occurred
+    assert result.running_summary is None
+    assert result.messages == messages
+    assert len(model.invoke_calls) == 0  # Model should not have been called
 
 
 def test_summarize_too_many_tokens():
@@ -56,7 +115,8 @@ def test_summarize_too_many_tokens():
     with pytest.raises(ValueError):
         summarize_messages(
             # will raise if > 8 (excluding system message)
-            [SystemMessage(content="You are a helpful assistant.", id="system")] + [AIMessage(content=f"Message {i}", id=f"{i}") for i in range(9)],
+            [SystemMessage(content="You are a helpful assistant.", id="system")]
+            + [AIMessage(content=f"Message {i}", id=f"{i}") for i in range(9)],
             running_summary=None,
             model=model,
             token_counter=len,
@@ -158,9 +218,8 @@ def test_with_system_message():
 
     # Call the summarizer
     max_tokens = 6
-    max_summary_tokens = (
-        1  # we're using len() as a token counter, so a summary is simply 1 "token"
-    )
+    # we're using len() as a token counter, so a summary is simply 1 "token"
+    max_summary_tokens = 1
     result = summarize_messages(
         messages,
         running_summary=None,
@@ -187,15 +246,12 @@ def test_with_system_message():
     assert result.messages[2:] == messages[-3:]
 
 
-def test_with_empty_messages():
-    # TODO: switch this to a character-based token counter
+def test_approximate_token_counter():
     model = FakeChatModel(responses=[AIMessage(content="Summary with empty messages.")])
-
-    def count_non_empty_messages(messages: list[BaseMessage]) -> int:
-        return sum(1 for msg in messages if msg.content)
 
     # Create messages with some empty content
     messages = [
+        # these will be summarized
         HumanMessage(content="", id="1"),
         AIMessage(content="Response 1", id="2"),
         HumanMessage(content="Message 2", id="3"),
@@ -204,6 +260,7 @@ def test_with_empty_messages():
         AIMessage(content="Response 3", id="6"),
         HumanMessage(content="Message 4", id="7"),
         AIMessage(content="Response 4", id="8"),
+        # these will be added to the result post-summarization
         HumanMessage(content="Latest message", id="9"),
     ]
 
@@ -212,9 +269,9 @@ def test_with_empty_messages():
         messages,
         running_summary=None,
         model=model,
-        token_counter=count_non_empty_messages,
-        max_tokens=6,
-        max_summary_tokens=0,
+        token_counter=count_tokens_approximately,
+        max_tokens=60,
+        max_summary_tokens=10,
     )
 
     # Check that summarization still works with empty messages
@@ -351,7 +408,7 @@ def test_subsequent_summarization_with_new_messages():
 
     # Verify the structure of the final result
     assert "summary" in result2.messages[0].content.lower()
-    assert len(result2.messages) == 6  # Summary + last 5 messages
+    assert len(result2.messages) == 6  # Summary + last 4 messages
     assert result2.messages[-5:] == messages2[-5:]
 
     # Check the updated summary
@@ -359,3 +416,94 @@ def test_subsequent_summarization_with_new_messages():
     assert updated_summary_value.summary == "Updated summary including new messages."
     # Verify all messages except the last 5 were summarized
     assert len(updated_summary_value.summarized_message_ids) == len(messages2) - 5
+
+
+def test_ai_with_trailing_tool_calls_not_summarized():
+    model = FakeChatModel(responses=[AIMessage(content="Summary without tool calls.")])
+
+    messages = [
+        # these will be summarized
+        HumanMessage(content="Message 1", id="1"),
+        AIMessage(content="Response 1", id="2"),
+        HumanMessage(content="Message 2", id="3"),
+        AIMessage(
+            content="",
+            id="4",
+            tool_calls=[{"name": "tool_1", "id": "1", "args": {"arg1": "value1"}}],
+        ),
+        ToolMessage(content="Call other tool", tool_call_id="1", id="5"),
+        AIMessage(
+            content="",
+            id="6",
+            tool_calls=[{"name": "tool_2", "id": "2", "args": {"arg1": "value1"}}],
+        ),
+    ]
+
+    # Call the summarizer
+    result = summarize_messages(
+        messages,
+        running_summary=None,
+        model=model,
+        token_counter=len,
+        max_tokens=5,
+        max_summary_tokens=1,
+    )
+
+    # Check that the AI message with tool calls wasn't summarized
+    assert len(result.messages) == 2
+    assert result.messages[0].type == "system"  # Summary
+    assert result.messages[1] == messages[-1]  # The AI message with tool calls
+    assert result.running_summary.summarized_message_ids == set(
+        msg.id for msg in messages[:-1]
+    )
+
+
+def test_missing_message_ids():
+    messages = [
+        HumanMessage(content="Message 1", id="1"),
+        AIMessage(content="Response"),  # Missing ID
+    ]
+    with pytest.raises(ValueError, match="Messages are required to have ID field"):
+        summarize_messages(
+            messages,
+            running_summary=None,
+            model=FakeChatModel(responses=[]),
+            max_tokens=10,
+            max_summary_tokens=1,
+        )
+
+
+def test_duplicate_message_ids():
+    model = FakeChatModel(responses=[AIMessage(content="Summary")])
+
+    # First summarization
+    messages1 = [
+        HumanMessage(content="Message 1", id="1"),
+        AIMessage(content="Response 1", id="2"),
+        HumanMessage(content="Message 2", id="3"),
+    ]
+
+    result = summarize_messages(
+        messages1,
+        running_summary=None,
+        model=model,
+        token_counter=len,
+        max_tokens=2,
+        max_summary_tokens=1,
+    )
+
+    # Second summarization with a duplicate ID
+    messages2 = [
+        AIMessage(content="Response 2", id="4"),
+        HumanMessage(content="Message 3", id="1"),  # Duplicate ID
+    ]
+
+    with pytest.raises(ValueError, match="has already been summarized"):
+        summarize_messages(
+            messages1 + messages2,
+            running_summary=result.running_summary,
+            model=model,
+            token_counter=len,
+            max_tokens=5,
+            max_summary_tokens=1,
+        )

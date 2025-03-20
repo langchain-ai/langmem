@@ -230,7 +230,7 @@ async def test_docstring_example(
                     wrapped_code = f"""
 async def _test_docstring():
     global_ns = globals()
-{textwrap.indent(code_block, '    ')}
+{textwrap.indent(code_block, "    ")}
     # Update namespace with all locals
     global_ns.update(locals())
 """
