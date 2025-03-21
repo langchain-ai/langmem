@@ -75,7 +75,7 @@ plugins:
             show_bases: true
             show_source: false
             summary: true
-            inherited_members: true
+            inherited_members: false
             selection:
               docstring_style: google
             docstring_section_style: list
@@ -115,6 +115,7 @@ nav:
       - Tools: reference/tools.md
       - Prompt Optimization: reference/prompt_optimization.md
       - Utils: reference/utils.md
+      - Short Term Memory: reference/short_term.md
 
 markdown_extensions:
   - abbr

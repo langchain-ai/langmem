@@ -88,8 +88,8 @@ def summarize_messages(
     """Summarize messages when they exceed a token limit and replace them with a summary message.
 
     This function processes the messages from oldest to newest: once the cumulative number of message tokens
-    reaches max_tokens, all messages within max_tokens are summarized and replaced with a new summary message.
-    The resulting list of messages is [summary_message] + remaining_messages.
+    reaches `max_tokens`, all messages within `max_tokens` are summarized (excluding the system message, if any)
+    and replaced with a new summary message. The resulting list of messages is [summary_message] + remaining_messages.
 
     Args:
         messages: The list of messages to process.
@@ -100,18 +100,18 @@ def summarize_messages(
         model: The language model to use for generating summaries.
         max_tokens: Maximum number of tokens to return.
             Will also be used as a threshold for triggering the summarization: once the cumulative number of message tokens
-            reaches max_tokens, all messages within max_tokens will be summarized.
+            reaches `max_tokens`, all messages within `max_tokens` will be summarized.
 
             !!! Note
 
-                If the last message within max_tokens is an AI message with tool calls or a human message,
+                If the last message within `max_tokens` is an AI message with tool calls or a human message,
                 this message will not be summarized, and instead will be added to the returned messages.
         max_summary_tokens: Maximum number of tokens to budget for the summary.
 
             !!! Note
 
                 This parameter is not passed to the summary-generating LLM to limit the length of the summary.
-                It is only used for correctly estimating the threshold for summarization.
+                It is only used for correctly estimating the maximum allowed token budget.
                 If you want to enforce it, you would need to pass `model.bind(max_tokens=max_summary_tokens)`
                 as the `model` parameter to this function.
         token_counter: Function to count tokens in a message. Defaults to approximate counting.
@@ -314,13 +314,15 @@ def summarize_messages(
 
 
 class SummarizationNode(RunnableCallable):
+    """A LangGraph node that summarizes messages when they exceed a token limit and replaces them with a summary message."""
+
     def __init__(
         self,
         *,
         model: LanguageModelLike,
         max_tokens: int,
-        max_summary_tokens: int = 1,
-        token_counter: TokenCounter = len,
+        max_summary_tokens: int = 256,
+        token_counter: TokenCounter = count_tokens_approximately,
         initial_summary_prompt: ChatPromptTemplate = DEFAULT_INITIAL_SUMMARY_PROMPT,
         existing_summary_prompt: ChatPromptTemplate = DEFAULT_EXISTING_SUMMARY_PROMPT,
         final_prompt: ChatPromptTemplate = DEFAULT_FINAL_SUMMARY_PROMPT,
@@ -331,14 +333,14 @@ class SummarizationNode(RunnableCallable):
         """A LangGraph node that summarizes messages when they exceed a token limit and replaces them with a summary message.
 
         Processes the messages from oldest to newest: once the cumulative number of message tokens
-        reaches max_tokens, all messages within the token limit are summarized and replaced with a new summary message.
-        The resulting list of messages is [summary_message] + remaining_messages.
+        reaches `max_tokens`, all messages within `max_tokens` are summarized (excluding the system message, if any)
+        and replaced with a new summary message. The resulting list of messages is [summary_message] + remaining_messages.
 
         Args:
             model: The language model to use for generating summaries.
             max_tokens: Maximum number of tokens to return.
                 Will also be used as a threshold for triggering the summarization: once the cumulative number of message tokens
-                reaches max_tokens, all messages within max_tokens will be summarized.
+                reaches `max_tokens`, all messages within `max_tokens` will be summarized.
 
                 !!! Note
 
@@ -349,7 +351,7 @@ class SummarizationNode(RunnableCallable):
                 !!! Note
 
                     This parameter is not passed to the summary-generating LLM to limit the length of the summary.
-                    It is only used for correctly estimating the threshold for summarization.
+                    It is only used for correctly estimating the maximum allowed token budget.
                     If you want to enforce it, you would need to pass `model.bind(max_tokens=max_summary_tokens)`
                     as the `model` parameter to this function.
             token_counter: Function to count tokens in a message. Defaults to approximate counting.
@@ -361,9 +363,9 @@ class SummarizationNode(RunnableCallable):
             output_messages_key: Key in the state update that contains the list of updated messages.
                 !!! Note
 
-                    `output_messages_key` must be **different** from the `input_messages_key`.
+                    `output_messages_key` **must be different** from the `input_messages_key`.
                     This is done to decouple summarized messages from the main list of messages in the graph state (i.e., `input_messages_key`).
-                    If you want to update / overwrite the main list of messages, you would need to use summarize_messages function directly or wrap
+                    If you want to update / overwrite the main list of messages, you would need to use `summarize_messages` function directly or wrap
                     the invocation of this node in a different node.
 
             name: Name of the summarization node.
@@ -378,7 +380,6 @@ class SummarizationNode(RunnableCallable):
                 ```
 
         Example:
-
             ```pycon
             >>> from typing import Any, TypedDict
             >>> from langchain_openai import ChatOpenAI
