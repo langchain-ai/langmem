@@ -77,6 +77,10 @@ graph.invoke({"messages": "now do the same but for dogs"}, config)
 graph.invoke({"messages": "what's my name?"}, config)
 ```
 
+!!! Note "Using in UI"
+
+    An important question is how to present messages to the users in the UI of your app. We recommend rendering the full, unmodified message history. You may choose to additionally render the summary and messages that are passed to the LLM. We also recommend using separate LangGraph state keys for the full message history (e.g., `"messages"`) and summarization results (e.g., `"summary"`). In `SummarizationNode`, summarization results are stored in a separate state key called `context` (see example below).
+
 ### Using `SummarizationNode`
 
 You can also separate the summarization into a dedicated node. Let's explore how to modify the above example to use `SummarizationNode` for achieving the same results:
