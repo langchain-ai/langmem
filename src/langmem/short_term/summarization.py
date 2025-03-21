@@ -131,7 +131,7 @@ def summarize_messages(
         ```pycon
         >>> from langgraph.graph import StateGraph, START, MessagesState
         >>> from langgraph.checkpoint.memory import InMemorySaver
-        >>> from langmem.short_term.summarization import summarize_messages, RunningSummary
+        >>> from langmem.short_term import summarize_messages, RunningSummary
         >>> from langchain_openai import ChatOpenAI
 
         >>> model = ChatOpenAI(model="gpt-4o")
@@ -386,7 +386,7 @@ class SummarizationNode(RunnableCallable):
             >>> from langchain_core.messages import AnyMessage
             >>> from langgraph.graph import StateGraph, START, MessagesState
             >>> from langgraph.checkpoint.memory import InMemorySaver
-            >>> from langmem.short_term.summarization import SummarizationNode, RunningSummary
+            >>> from langmem.short_term import SummarizationNode, RunningSummary
             >>>
             >>> model = ChatOpenAI(model="gpt-4o")
             >>> summarization_model = model.bind(max_tokens=128)

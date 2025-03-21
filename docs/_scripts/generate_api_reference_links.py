@@ -78,6 +78,10 @@ MANUAL_API_REFERENCES_LANGMEM = [
     ("langmem", "create_memory_store_manager", "memory"),
     ("langmem.utils", "NamespaceTemplate", "utils"),
     ("langmem", "ReflectionExecutor", "utils"),
+    ("langmem.short_term", "SummarizationNode", "short_term"),
+    ("langmem.short_term", "SummarizationResult", "short_term"),
+    ("langmem.short_term", "RunningSummary", "short_term"),
+    ("langmem.short_term", "summarize_messages", "short_term"),
 ]
 
 WELL_KNOWN_LANGMEM_OBJECTS = {

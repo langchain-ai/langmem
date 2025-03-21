@@ -109,6 +109,7 @@ nav:
       - Configure Dynamic Namespaces: guides/dynamically_configure_namespaces.md
       - Use Tools in Custom Agents: guides/use_tools_in_custom_agent.md
       - Use Tools in CrewAI: guides/use_tools_in_crewai.md
+      - Summarize Message History: guides/summarization.md
   - API Reference 📓:
       - Overview: reference/index.md
       - Extractive Memory: reference/memory.md

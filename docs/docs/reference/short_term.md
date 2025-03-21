@@ -10,10 +10,5 @@ title: Short Term Memory API Reference
       members:
         - summarize_messages
         - SummarizationNode
-
-::: langmem.short_term.summarization
-    handler: python
-    options:
-      members:
         - SummarizationResult
         - RunningSummary
