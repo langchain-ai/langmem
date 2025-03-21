@@ -162,7 +162,7 @@ Finally, memory relevance is more than just semantic similarity. Recall should c
     # )
     ```
 
-Choose between profiles and collections based on how you'll use the data: profiles excel when you need quick access to current state and when you have data requirements about what type of information you can store. They are also easy to present to a user for manual ediing. Collections are useful when you want to track knowledge across many interactions without loss of information, and when you want to recall certain information contextually rather than every time.
+Choose between profiles and collections based on how you'll use the data: profiles excel when you need quick access to current state and when you have data requirements about what type of information you can store. They are also easy to present to a user for manual edting. Collections are useful when you want to track knowledge across many interactions without loss of information, and when you want to recall certain information contextually rather than every time.
 
 ### Episodic Memory: Past Experiences
 
