@@ -64,9 +64,8 @@ checkpointer = InMemorySaver()
 builder = StateGraph(SummaryState)
 builder.add_node(call_model)
 builder.add_edge(START, "call_model")
-# It's important to compile the graph with a checkpointer, otherwise
-# we won't be storing previous conversation history as well as running summary
-# between invocations
+# It's important to compile the graph with a checkpointer,
+# otherwise the graph won't remember previous conversation turns
 # highlight-next-line
 graph = builder.compile(checkpointer=checkpointer)
 
