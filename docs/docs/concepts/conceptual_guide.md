@@ -330,7 +330,7 @@ These core functions do not depend on any particular database or storage system.
 
 ### 2. Stateful Integration
 
-The next layer up depends on LangGraph's long-term memory store. These components use the core API above to transform memories that existin in the store and upsert/delete them as needed when new conversation information comesin:
+The next layer up depends on LangGraph's long-term memory store. These components use the core API above to transform memories that existing in the store and upsert/delete them as needed when new conversation information comesin:
 
 - [**Store Managers**](../reference/memory.md#langmem.create_memory_store_manager): Automatically persist extracted memories
 - [**Memory Management Tools**](../reference/tools.md#langmem.create_manage_memory_tool): Give agents direct access to memory operations
