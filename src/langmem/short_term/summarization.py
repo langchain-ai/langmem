@@ -7,6 +7,7 @@ from langchain_core.messages import (
     AnyMessage,
     HumanMessage,
     MessageLikeRepresentation,
+    RemoveMessage,
     SystemMessage,
 )
 from langchain_core.messages.utils import count_tokens_approximately
@@ -477,10 +478,18 @@ class SummarizationNode(RunnableCallable):
             final_prompt=self.final_prompt,
         )
 
-        state_update = {self.output_messages_key: summarization_result.messages}
+        state_update = {self.output_messages_key: list(summarization_result.messages)}
         if summarization_result.running_summary:
             state_update["context"] = {
                 **context,
                 "running_summary": summarization_result.running_summary,
             }
+            # If the input and output messages keys are the same, we need to remove the
+            # summarized messages from the resulting message list
+            if self.input_messages_key == self.output_messages_key:
+                state_update[self.output_messages_key].extend(
+                    RemoveMessage(message_id)
+                    for message_id in summarization_result.running_summary.summarized_message_ids
+                )
+
         return state_update
