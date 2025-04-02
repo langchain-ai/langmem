@@ -11,7 +11,7 @@ from langchain_core.messages import (
 from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
 from langchain_core.messages.utils import count_tokens_approximately
 
-from langmem.short_term.summarization import summarize_messages
+from langmem.short_term.summarization import summarize_messages, SummarizationNode
 
 
 class FakeChatModel(FakeMessagesListChatModel):
@@ -747,6 +747,168 @@ def test_summarization_updated_messages():
 
     # Check the updated summary
     updated_summary_value = result2.running_summary
+    assert updated_summary_value.summary == "Updated summary including new messages."
+    # Verify all messages except the last 5 were summarized
+    assert len(updated_summary_value.summarized_message_ids) == 6 + 4  # 6 from first summarization + 4 from second
+
+
+def test_summarization_node():
+    model = FakeChatModel(
+        responses=[AIMessage(content="This is a summary of the conversation.")]
+    )
+
+    # Create enough messages to trigger summarization
+    messages = [
+        # these messages will be summarized
+        HumanMessage(content="Message 1", id="1"),
+        AIMessage(content="Response 1", id="2"),
+        HumanMessage(content="Message 2", id="3"),
+        AIMessage(content="Response 2", id="4"),
+        HumanMessage(content="Message 3", id="5"),
+        AIMessage(content="Response 3", id="6"),
+        # these messages will be added to the result post-summarization
+        HumanMessage(content="Message 4", id="7"),
+        AIMessage(content="Response 4", id="8"),
+        HumanMessage(content="Latest message", id="9"),
+    ]
+
+    # Call the summarizer
+    max_summary_tokens = 1
+    summarization_node = SummarizationNode(
+        model=model,
+        token_counter=len,
+        max_tokens=6,
+        max_summary_tokens=max_summary_tokens,
+    )
+    result = summarization_node.invoke({"messages": messages})
+
+    # Check that model was called
+    assert len(model.invoke_calls) == 1
+
+    # Check that the result has the expected structure:
+    # - First message should be a summary
+    # - Last 3 messages should be the last 3 original messages
+    assert len(result["summarized_messages"]) == 4
+    assert result["summarized_messages"][0].type == "system"
+    assert "summary" in result["summarized_messages"][0].content.lower()
+    assert result["summarized_messages"][1:] == messages[-3:]
+
+    # Check the summary value
+    summary_value = result["context"]["running_summary"]
+    assert summary_value is not None
+    assert summary_value.summary == "This is a summary of the conversation."
+    assert summary_value.summarized_message_ids == set(
+        msg.id for msg in messages[:6]
+    )  # All messages except the latest
+
+    # Test subsequent invocation (no new summary needed)
+    result = summarization_node.invoke({"messages": messages, "context": {"running_summary": summary_value}})
+    assert len(result["summarized_messages"]) == 4
+    assert result["summarized_messages"][0].type == "system"
+    assert (
+        result["summarized_messages"][0].content
+        == "Summary of the conversation so far: This is a summary of the conversation."
+    )
+    assert result["summarized_messages"][1:] == messages[-3:]
+
+
+def test_summarization_node_same_key():
+    # this is a variant of test_subsequent_summarization_with_new_messages
+    # that passes the updated (ie., summarized) messages on the second turn
+    model = FakeChatModel(
+        responses=[
+            AIMessage(content="First summary of the conversation."),
+            AIMessage(content="Updated summary including new messages."),
+        ]
+    )
+
+    # First batch of messages
+    messages1 = [
+        # these will be summarized
+        HumanMessage(content="Message 1", id="1"),
+        AIMessage(content="Response 1", id="2"),
+        HumanMessage(content="Message 2", id="3"),
+        AIMessage(content="Response 2", id="4"),
+        HumanMessage(content="Message 3", id="5"),
+        AIMessage(content="Response 3", id="6"),
+        # this will be propagated to the next summarization
+        HumanMessage(content="Latest message 1", id="7"),
+    ]
+
+    # First summarization
+    max_tokens = 6
+    max_summary_tokens = 1
+    summarization_node = SummarizationNode(
+        model=model,
+        token_counter=len,
+        max_tokens=max_tokens,
+        max_summary_tokens=max_summary_tokens,
+        input_messages_key="messages",
+        output_messages_key="messages",
+    )
+    result = summarization_node.invoke({"messages": messages1})
+
+    # Verify the first summarization result
+    assert result["messages"][0].type == "remove"
+    assert "summary" in result["messages"][1].content.lower()
+    assert len(result["messages"]) == 3
+    assert result["messages"][-1] == messages1[-1]
+    assert len(model.invoke_calls) == 1
+
+    # Check the summary value
+    summary_value = result["context"]["running_summary"]
+    assert summary_value.summary == "First summary of the conversation."
+    assert len(summary_value.summarized_message_ids) == 6  # first 6 messages
+
+    # Add more messages to trigger another summarization
+    new_messages = [
+        # these will be summarized (including accounting for the previous summary!)
+        AIMessage(content="Response to latest 1", id="8"),
+        HumanMessage(content="Message 4", id="9"),
+        AIMessage(content="Response 4", id="10"),
+        # these will be kept in the final result
+        HumanMessage(content="Message 5", id="11"),
+        AIMessage(content="Response 5", id="12"),
+        HumanMessage(content="Message 6", id="13"),
+        AIMessage(content="Response 6", id="14"),
+        HumanMessage(content="Latest message 2", id="15"),
+    ]
+
+    # NOTE: here we're using the updated messages, not the original ones
+    messages2 = result["messages"][1:].copy()
+    messages2.extend(new_messages)
+
+    # Second summarization
+    result2 = summarization_node.invoke({"messages": messages2, "context": {"running_summary": summary_value}})
+
+    # Check that model was called twice
+    assert len(model.invoke_calls) == 2
+
+    # Get the messages sent to the model in the second call
+    second_call_messages = model.invoke_calls[1]
+
+    # Check that the previous summary is included in the prompt
+    prompt_message = second_call_messages[-1]
+    assert "First summary of the conversation" in prompt_message.content
+    assert "Extend this summary" in prompt_message.content
+
+    # Check that only the new messages are sent to the model, not already summarized ones
+    assert len(second_call_messages) == 5  # 4 messages + prompt
+    assert [msg.content for msg in second_call_messages[:-1]] == [
+        "Latest message 1",
+        "Response to latest 1",
+        "Message 4",
+        "Response 4",
+    ]
+
+    # Verify the structure of the final result
+    assert result2["messages"][0].type == "remove"
+    assert "summary" in result2["messages"][1].content.lower()
+    assert len(result2["messages"]) == 7  # Remove message + summary + last 4 messages
+    assert result2["messages"][-5:] == messages2[-5:]
+
+    # Check the updated summary
+    updated_summary_value = result2["context"]["running_summary"]
     assert updated_summary_value.summary == "Updated summary including new messages."
     # Verify all messages except the last 5 were summarized
     assert len(updated_summary_value.summarized_message_ids) == 6 + 4  # 6 from first summarization + 4 from second

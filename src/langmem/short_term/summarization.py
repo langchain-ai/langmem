@@ -497,9 +497,8 @@ class SummarizationNode(RunnableCallable):
             # If the input and output messages keys are the same, we need to remove the
             # summarized messages from the resulting message list
             if self.input_messages_key == self.output_messages_key:
-                state_update[self.output_messages_key] = (
+                state_update[self.output_messages_key] = [
                     RemoveMessage(REMOVE_ALL_MESSAGES)
-                    + state_update[self.output_messages_key]
-                )
+                ] + state_update[self.output_messages_key]
 
         return state_update
