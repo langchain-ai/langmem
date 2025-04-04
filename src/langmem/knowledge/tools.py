@@ -441,8 +441,8 @@ def create_search_memory_tool(
             offset=offset,
         )
         if response_format == "content_and_artifact":
-            return [m.dict() for m in memories], memories
-        return [m.dict() for m in memories]
+            return utils.dumps([m.dict() for m in memories]), memories
+        return utils.dumps([m.dict() for m in memories])
 
     def search_memory(
         query: str,
@@ -461,8 +461,8 @@ def create_search_memory_tool(
             offset=offset,
         )
         if response_format == "content_and_artifact":
-            return [m.dict() for m in memories], memories
-        return [m.dict() for m in memories]
+            return utils.dumps([m.dict() for m in memories]), memories
+        return utils.dumps([m.dict() for m in memories])
 
     description = """Search your long-term memories for information relevant to your current context. {instructions}""".format(
         instructions=instructions

@@ -1,6 +1,6 @@
 [project]
 name = "langmem"
-version = "0.0.19"
+version = "0.0.20"
 description = "Prebuilt utilities for memory management and retrieval."
 readme = "README.md"
 requires-python = ">=3.10"

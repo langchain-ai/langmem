@@ -2,6 +2,7 @@ import re
 import typing
 import uuid
 
+import orjson
 from langchain_core.messages import AnyMessage
 from langchain_core.messages.utils import merge_message_runs
 from langchain_core.runnables import RunnableConfig
@@ -245,3 +246,7 @@ def get_prompt_extraction_schema(
             return data
 
     return OptimizedPromptOutput
+
+
+def dumps(obj: typing.Any) -> str:
+    return orjson.dumps(obj).decode("utf-8")
