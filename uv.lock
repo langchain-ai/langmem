@@ -1,5 +1,4 @@
 version = 1
-revision = 1
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.12.4'",
@@ -1221,7 +1220,7 @@ wheels = [
 
 [[package]]
 name = "langmem"
-version = "0.0.21"
+version = "0.0.22"
 source = { editable = "." }
 dependencies = [
     { name = "langchain" },
@@ -1272,7 +1271,7 @@ requires-dist = [
     { name = "langgraph", specifier = ">=0.3.23" },
     { name = "langgraph-checkpoint", specifier = ">=2.0.12" },
     { name = "langsmith", specifier = ">=0.3.8" },
-    { name = "trustcall", specifier = ">=0.0.37" },
+    { name = "trustcall", specifier = ">=0.0.39" },
 ]
 
 [package.metadata.requires-dev]
@@ -2806,16 +2805,16 @@ wheels = [
 
 [[package]]
 name = "trustcall"
-version = "0.0.37"
+version = "0.0.39"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "dydantic" },
     { name = "jsonpatch" },
     { name = "langgraph" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/58/19/c110b5f99a17ff2a22acfa899f924961e2d6b0621d32ada4ead6fe0bc201/trustcall-0.0.37.tar.gz", hash = "sha256:0744026f013a72c1ff93651b215d1f9977b286bfe60db9de11d26f3618bf993e", size = 35845 }
+sdist = { url = "https://files.pythonhosted.org/packages/2b/72/4cdb54a31952827e8b58e11ea286bbfe2d3aa0ffb77a2f87dbc1c7ea77d3/trustcall-0.0.39.tar.gz", hash = "sha256:ec315818224501b9537ce6b7618dbc21be41210c6e8f2e239169a5a00912cd6e", size = 38637 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/57/80/c0b63e1cd2ff7d8fc3554ca6d707a484df9b0937a1db230c54a8a02beaa6/trustcall-0.0.37-py3-none-any.whl", hash = "sha256:0f68e2682ec50afbded5e098dbef8cf17a118a37321da89b14b02c515f87ef7a", size = 26552 },
+    { url = "https://files.pythonhosted.org/packages/2c/3a/58de925a104ce554fc250b833fe76401c7822aa8d65f2002cb53195e6c64/trustcall-0.0.39-py3-none-any.whl", hash = "sha256:d7da42e0bba816c0539b2936dfed90ffb3ea8d789e548e73865d416f8ac4ee64", size = 30073 },
 ]
 
 [[package]]

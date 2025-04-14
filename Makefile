@@ -1,13 +1,13 @@
 .PHONY: lint-docs format-docs build-docs serve-docs serve-clean-docs clean-docs codespell build-typedoc doctest
 
 build-docs:
-	uv run --with-editable . python -m mkdocs build --clean -f docs/mkdocs.yml --strict
+	uv run --group docs --with-editable . python -m mkdocs build --clean -f docs/mkdocs.yml --strict
 
 serve-clean-docs: clean-docs
-	uv run --with-editable . python -m mkdocs serve -c -f docs/mkdocs.yml --strict -w ./src/langmem
+	uv run --group docs --with-editable . python -m mkdocs serve -c -f docs/mkdocs.yml --strict -w ./src/langmem
 
 serve-docs: build-typedoc
-	uv run --with-editable . python -m mkdocs serve -f docs/mkdocs.yml -w ./src/langmem -w README.md
+	uv run --group docs --with-editable . python -m mkdocs serve -f docs/mkdocs.yml -w ./src/langmem -w README.md
 
 ## Run format against the project documentation.
 format-docs:

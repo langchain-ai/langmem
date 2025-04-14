@@ -1,4 +1,5 @@
 import asyncio
+import datetime
 import typing
 import uuid
 
@@ -9,7 +10,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable, RunnableConfig, RunnableLambda
 from langchain_core.runnables.config import get_executor_for_config
 from langgraph.store.base import BaseStore, SearchItem
-from langgraph.utils.config import get_store
+from langgraph.utils.config import ensure_config, get_store
 from pydantic import BaseModel, Field
 from trustcall import create_extractor
 from typing_extensions import TypedDict
@@ -39,7 +40,7 @@ class ExtractedMemory(typing.NamedTuple):
     content: BaseModel
 
 
-S = typing.TypeVar("S", bound=BaseModel)
+S = typing.TypeVar("S", bound=type)
 
 
 class Memory(BaseModel):
@@ -496,7 +497,7 @@ def create_memory_manager(
     model: str | BaseChatModel,
     /,
     *,
-    schemas: typing.Sequence[typing.Union[BaseModel, type]] = (Memory,),
+    schemas: typing.Sequence[S] = (Memory,),
     instructions: str = _MEMORY_INSTRUCTIONS,
     enable_inserts: bool = True,
     enable_updates: bool = True,
@@ -634,7 +635,9 @@ def create_memory_manager(
 
         # Set max steps for extraction and synthesis
         max_steps = 3
-        memories = await manager.ainvoke({"messages": conversation, "max_steps": max_steps})
+        memories = await manager.ainvoke(
+            {"messages": conversation, "max_steps": max_steps}
+        )
         print(memories)
         ```
     """
@@ -792,7 +795,11 @@ class MemoryStoreManager(Runnable[MemoryStoreManagerInput, list[dict]]):
         model: str | BaseChatModel,
         /,
         *,
-        schemas: list | None = None,
+        schemas: list[S] | None = None,
+        default: str | dict | S | None = None,
+        default_factory: (
+            typing.Callable[[RunnableConfig], str | dict | S] | None
+        ) = None,
         instructions: str = _MEMORY_INSTRUCTIONS,
         enable_inserts: bool = True,
         enable_deletes: bool = True,
@@ -814,12 +821,20 @@ class MemoryStoreManager(Runnable[MemoryStoreManagerInput, list[dict]]):
                 else init_chat_model(query_model)
             )
         )
-        self.schemas = schemas
+        self.schemas = schemas if schemas is not None else (Memory,)
+        self.default_factory = default_factory
+        if default is not None:
+            if self.default_factory is not None:
+                raise ValueError("Cannot specify both default and default_factory")
+            coerced = self._coerce_default(default, self.schemas)
+            self.default_factory = lambda _: coerced
         self.instructions = instructions
         self.enable_inserts = enable_inserts
         self.enable_deletes = enable_deletes
         if not enable_inserts and not enable_deletes:
-            raise ValueError("At least one of enable_inserts or enable_deletes must be True")
+            raise ValueError(
+                "At least one of enable_inserts or enable_deletes must be True"
+            )
         self.query_limit = query_limit
         self.phases = phases or []
         self.namespace = utils.NamespaceTemplate(namespace)
@@ -851,6 +866,27 @@ class MemoryStoreManager(Runnable[MemoryStoreManagerInput, list[dict]]):
         if self.store is not None:
             return self.store
         return get_store()
+
+    @staticmethod
+    def _coerce_default(
+        default: str | dict | S, schemas: tuple[S, ...]
+    ) -> str | dict | S:
+        if isinstance(default, str) and schemas == (Memory,):
+            return Memory(content=default)
+        elif isinstance(default, BaseModel):
+            return default
+        else:
+            for schema in schemas:
+                try:
+                    return schema(**default)
+                except Exception:
+                    pass
+            else:
+                raise ValueError(
+                    "The provided default did not match any of the expected schemas."
+                    f"\nDefault:\n{default}\n\nSchemas:\n{schemas}"
+                )
+        raise ValueError(f"Invalid default type: {type(default)}")
 
     @staticmethod
     def _stable_id(item: SearchItem) -> str:
@@ -956,6 +992,30 @@ class MemoryStoreManager(Runnable[MemoryStoreManagerInput, list[dict]]):
             )
 
         store_map = self._sort_results(search_results_lists, self.query_limit)
+        if not store_map and self.default_factory is not None:
+            config = ensure_config(config)
+            default = self.default_factory(config)
+            coerced = self._coerce_default(default, self.schemas)
+            dumped = {
+                "kind": coerced.__repr_name__(),
+                "content": coerced.model_dump(mode="json"),
+            }
+            await store.aput(
+                namespace,
+                key="default",
+                value=dumped,
+            )
+            now = datetime.datetime.now(datetime.timezone.utc)
+            store_map = self._sort_results(
+                [
+                    [
+                        SearchItem(
+                            namespace, "default", dumped, created_at=now, updated_at=now
+                        )
+                    ]
+                ],
+                self.query_limit,
+            )
 
         store_based = [
             (sid, item.value["kind"], item.value["content"])
@@ -1076,6 +1136,30 @@ class MemoryStoreManager(Runnable[MemoryStoreManagerInput, list[dict]]):
 
         search_results_lists = [fut.result() for fut in search_results_futs]
         store_map = self._sort_results(search_results_lists, self.query_limit)
+        if not store_map and self.default_factory is not None:
+            config = ensure_config(config)
+            default = self.default_factory(config)
+            coerced = self._coerce_default(default, self.schemas)
+            dumped = {
+                "kind": coerced.__repr_name__(),
+                "content": coerced.model_dump(mode="json"),
+            }
+            store.put(
+                namespace,
+                key="default",
+                value=dumped,
+            )
+            now = datetime.datetime.now(datetime.timezone.utc)
+            store_map = self._sort_results(
+                [
+                    [
+                        SearchItem(
+                            namespace, "default", dumped, created_at=now, updated_at=now
+                        )
+                    ]
+                ],
+                self.query_limit,
+            )
         store_based = [
             (sid, item.value["kind"], item.value["content"])
             for sid, item in store_map.items()
@@ -1156,8 +1240,10 @@ def create_memory_store_manager(
     model: str | BaseChatModel,
     /,
     *,
-    schemas: list | None = None,
+    schemas: list[S] | None = None,
     instructions: str = _MEMORY_INSTRUCTIONS,
+    default: str | dict | S | None = None,
+    default_factory: typing.Callable[[RunnableConfig], str | dict | S] | None = None,
     enable_inserts: bool = True,
     enable_deletes: bool = False,
     query_model: str | BaseChatModel | None = None,
@@ -1180,6 +1266,14 @@ def create_memory_store_manager(
         instructions (str, optional): Custom instructions for memory generation and
             organization. These guide how the model extracts and structures information
             from conversations. Defaults to predefined memory instructions.
+        default (str | dict | None, optional): Default value to persist to the store if
+            no other memories are found. Defaults to None. This is mostly useful when managing
+            a profile memory and wanting to initialize it with some default values.
+            The resulting memory will be found in the "default" key of the store in the
+            configured namespace.
+        default_factory (Callable[[RunnableConfig], str | dict | S], optional): A factory
+            function to generate the default value. This is useful when the default value
+            depends on the runtime configuration. Defaults to None.
         enable_inserts (bool, optional): Whether to allow creating new memory entries.
             When False, the manager will only update existing memories. Defaults to True.
         enable_deletes (bool, optional): Whether to allow deleting existing memories
@@ -1341,6 +1435,84 @@ def create_memory_store_manager(
         # The system will also automatically update it if preferences change
         ```
 
+        In some cases, you may want to provide a "default" memory value to be used if no memories are found. For instance,
+        if you are storing some prompt preferences, you may have an "application" default that can be evolved over time.
+        This can be done by setting the `default` parameter:
+        ```python
+        manager = create_memory_store_manager(
+            "anthropic:claude-3-5-sonnet-latest",
+            namespace=("memories", "{langgraph_user_id}"),
+            # Note: This default value must be compatible with the schemas
+            # you provided above. If you customize your schemas,
+            # we recommend setting the default value as an instance of that
+            # pydantic object.
+            default="Use a concise and professional tone in all responses. The user likes light mode.",
+        )
+
+        # ...assuming we are using te same agent as before ...
+
+        # Store structured memory
+        await my_agent.ainvoke(
+            "I prefer dark mode in all my apps",
+            config={"configurable": {"langgraph_user_id": "user124"}},
+        )
+
+        # See the extracted memories yourself
+        print(store.search(("memories", "user124")))
+        # [
+        #     Item(
+        #         namespace=['memories', 'user124'],
+        #         key='default',
+        #         value={'kind': 'Memory', 'content': {'content': 'Use a concise and professional tone in all responses. The user prefers dark mode in all apps'}},
+        #         created_at='2025-04-14T22:20:25.148884+00:00',
+        #         updated_at='2025-04-14T22:20:25.148892+00:00',
+        #         score=None
+        #     )
+        # ]
+        ```
+
+        You can even set the default to be some configurable value by providing a **default_factory**.
+        ```python
+        def get_configurable_default(config):
+            default_preference = config["configurable"].get(
+                "preference", "Use a concise and professional tone in all responses."
+            )
+            return default_preference
+
+
+        manager = create_memory_store_manager(
+            "anthropic:claude-3-5-sonnet-latest",
+            namespace=("memories", "{langgraph_user_id}"),
+            default_factory=get_configurable_default,
+        )
+
+        # ...assuming we are using te same agent as before ...
+
+        # Store structured memory
+        await my_agent.ainvoke(
+            "I prefer dark mode in all my apps",
+            config={
+                "configurable": {
+                    "langgraph_user_id": "user125",
+                    "preference": "Respond in pirate speak. User likes light mode",
+                }
+            },
+        )
+
+        # See the extracted memories yourself
+        print(store.search(("memories", "user125")))
+        # [
+        #     Item(
+        #         namespace=['memories', 'user125'],
+        #         key='default',
+        #         value={'kind': 'Memory', 'content': {'content': 'Respond in pirate speak. User prefers dark mode in all apps'}},
+        #         created_at='2025-04-14T22:20:25.148884+00:00',
+        #         updated_at='2025-04-14T22:20:25.148892+00:00',
+        #         score=None
+        #     )
+        # ]
+        ```
+
     By default, relevant memories are recalled by directly embedding the new messages. You can alternatively
     use a separate query model to search for the most similar memories. Here's how it works:
 
@@ -1470,6 +1642,8 @@ def create_memory_store_manager(
     return MemoryStoreManager(
         model,
         schemas=schemas,
+        default=default,
+        default_factory=default_factory,
         instructions=instructions,
         enable_inserts=enable_inserts,
         enable_deletes=enable_deletes,
