@@ -893,7 +893,13 @@ class MemoryStoreManager(Runnable[MemoryStoreManagerInput, list[dict]]):
         """
         if self._store is not None:
             return self._store
-        self._store = get_store()
+        try:
+            self._store = get_store()
+        except RuntimeError as e:
+            raise ValueError(
+                "Memory Manager's store not configured in LangGraph context. "
+                "First use in the graph before calling, or initialize with an instance of the store."
+            ) from e
         return self._store
 
     @staticmethod
@@ -1318,7 +1324,7 @@ class MemoryStoreManager(Runnable[MemoryStoreManagerInput, list[dict]]):
         ???+ example "Examples"
             Retrieve an item:
             ```python
-            item = store.get("report")
+            item = manager.get("report")
             ```
         """
         namespace = self.get_namespace(config)
@@ -1359,13 +1365,16 @@ class MemoryStoreManager(Runnable[MemoryStoreManagerInput, list[dict]]):
             Basic filtering:
             ```python
             # Search for documents with specific metadata
-            results = store.search(filter={"type": "article", "status": "published"})
+            results = manager.search(
+                query="app preferences",
+                filter={"type": "article", "status": "published"},
+            )
             ```
 
             Natural language search (requires vector store implementation):
             ```python
             # Search for semantically similar documents
-            results = store.search(
+            results = manager.search(
                 query="machine learning applications in healthcare",
                 filter={"type": "research_paper"},
                 limit=5,
@@ -1426,18 +1435,18 @@ class MemoryStoreManager(Runnable[MemoryStoreManagerInput, list[dict]]):
         ???+ example "Examples"
             Store item. Indexing depends on how you configure the store.
             ```python
-            store.put("report", {"memory": "Will likes ai"})
+            manager.put("report", {"memory": "Will likes ai"})
             ```
 
             Do not index item for semantic search. Still accessible through get()
             and search() operations but won't have a vector representation.
             ```python
-            store.put("report", {"memory": "Will likes ai"}, index=False)
+            manager.put("report", {"memory": "Will likes ai"}, index=False)
             ```
 
             Index specific fields for search.
             ```python
-            store.put("report", {"memory": "Will likes ai"}, index=["memory"])
+            manager.put("report", {"memory": "Will likes ai"}, index=["memory"])
             ```
         """
         return self.store.put(
@@ -1477,7 +1486,7 @@ class MemoryStoreManager(Runnable[MemoryStoreManagerInput, list[dict]]):
         ???+ example "Examples"
             Retrieve an item asynchronously:
             ```python
-            item = await store.aget("report")
+            item = await manager.aget("report")
             ```
         """
         namespace = self.get_namespace(config)
@@ -1517,7 +1526,7 @@ class MemoryStoreManager(Runnable[MemoryStoreManagerInput, list[dict]]):
             Basic filtering:
             ```python
             # Search for documents with specific metadata
-            results = await store.asearch(
+            results = await manager.asearch(
                 filter={"type": "article", "status": "published"}
             )
             ```
@@ -1525,7 +1534,7 @@ class MemoryStoreManager(Runnable[MemoryStoreManagerInput, list[dict]]):
             Natural language search (requires vector store implementation):
             ```python
             # Search for semantically similar documents
-            results = await store.asearch(
+            results = await manager.asearch(
                 query="machine learning applications in healthcare",
                 filter={"type": "research_paper"},
                 limit=5,
@@ -1601,21 +1610,18 @@ class MemoryStoreManager(Runnable[MemoryStoreManagerInput, list[dict]]):
         ???+ example "Examples"
             Store item. Indexing depends on how you configure the store.
             ```python
-            await store.aput(("docs",), "report", {"memory": "Will likes ai"})
+            await manager.aput("report", {"memory": "Will likes ai"})
             ```
 
             Do not index item for semantic search. Still accessible through get()
             and search() operations but won't have a vector representation.
             ```python
-            await store.aput(
-                ("docs",), "report", {"memory": "Will likes ai"}, index=False
-            )
+            await manager.aput("report", {"memory": "Will likes ai"}, index=False)
             ```
 
             Index specific fields for search (if store configured to index items):
             ```python
-            await store.aput(
-                ("docs",),
+            await manager.aput(
                 "report",
                 {
                     "memory": "Will likes ai",
@@ -1748,9 +1754,9 @@ def create_memory_store_manager(
 
         @entrypoint(store=store)
         async def my_agent(message: str, config: RunnableConfig):
-            memories = await store.asearch(
-                ("memories", config["configurable"]["langgraph_user_id"]),
+            memories = await manager.asearch(
                 query=message,
+                config=config,
             )
             llm_response = await client.messages.create(
                 model="claude-3-5-sonnet-latest",
@@ -1766,20 +1772,20 @@ def create_memory_store_manager(
             )
             return response["content"]
 
-
+        config = {"configurable": {"langgraph_user_id": "user123"}}
         response_1 = await my_agent.ainvoke(
             "I prefer dark mode in all my apps",
-            config={"configurable": {"langgraph_user_id": "user123"}},
+            config=config,
         )
         print("response_1:", response_1)
         # Later conversation - automatically retrieves and uses the stored preference
         response_2 = await my_agent.ainvoke(
             "What theme do I prefer?",
-            config={"configurable": {"langgraph_user_id": "user123"}},
+            config=config,
         )
         print("response_2:", response_2)
         # You can list over memories in the user's namespace manually:
-        print(store.search(("memories", "user123")))
+        print(manager.search(query="app preferences", config=config))
         ```
 
         You can customize what each memory can look like by defining **schemas**:
@@ -1832,13 +1838,14 @@ def create_memory_store_manager(
 
 
         # Store structured memory
+        config = {"configurable": {"langgraph_user_id": "user123"}}
         await my_agent.ainvoke(
             "I prefer dark mode in all my apps",
-            config={"configurable": {"langgraph_user_id": "user123"}},
+            config=config,
         )
 
         # See the extracted memories yourself
-        print(store.search(("memories", "user123")))
+        print(manager.search(query="app preferences", config=config))
 
         # Memory is automatically stored and can be retrieved in future conversations
         # The system will also automatically update it if preferences change
@@ -1858,16 +1865,27 @@ def create_memory_store_manager(
             default="Use a concise and professional tone in all responses. The user likes light mode.",
         )
 
-        # ...assuming we are using te same agent as before ...
+
+        # ... same agent as before ...
+        @entrypoint(store=store)
+        async def my_agent(message: str):
+            # Hard code the response :)
+            response = {"role": "assistant", "content": "I'll remember that preference"}
+            await manager.ainvoke(
+                {"messages": [{"role": "user", "content": message}, response]}
+            )
+            return response
+
 
         # Store structured memory
+        config = {"configurable": {"langgraph_user_id": "user124"}}
         await my_agent.ainvoke(
             "I prefer dark mode in all my apps",
-            config={"configurable": {"langgraph_user_id": "user124"}},
+            config=config,
         )
 
         # See the extracted memories yourself
-        print(store.search(("memories", "user124")))
+        print(manager.search(query="app preferences", config=config))
         # [
         #     Item(
         #         namespace=['memories', 'user124'],
@@ -1895,21 +1913,32 @@ def create_memory_store_manager(
             default_factory=get_configurable_default,
         )
 
-        # ...assuming we are using te same agent as before ...
+
+        # ... same agent as before ...
+        @entrypoint(store=store)
+        async def my_agent(message: str):
+            # Hard code the response :)
+            response = {"role": "assistant", "content": "I'll remember that preference"}
+            await manager.ainvoke(
+                {"messages": [{"role": "user", "content": message}, response]}
+            )
+            return response
+
 
         # Store structured memory
+        config = {
+            "configurable": {
+                "langgraph_user_id": "user125",
+                "preference": "Respond in pirate speak. User likes light mode",
+            }
+        }
         await my_agent.ainvoke(
             "I prefer dark mode in all my apps",
-            config={
-                "configurable": {
-                    "langgraph_user_id": "user125",
-                    "preference": "Respond in pirate speak. User likes light mode",
-                }
-            },
+            config=config,
         )
 
         # See the extracted memories yourself
-        print(store.search(("memories", "user125")))
+        print(manager.search(query="app preferences", config=config))
         # [
         #     Item(
         #         namespace=['memories', 'user125'],
@@ -1973,14 +2002,14 @@ def create_memory_store_manager(
             )
             return response
 
-
+        config = {"configurable": {"langgraph_user_id": "user123"}}
         await my_agent.ainvoke(
             "I prefer dark mode in all my apps",
-            config={"configurable": {"langgraph_user_id": "user123"}},
+            config=config,
         )
 
         # See the extracted memories yourself
-        print(store.search(("memories", "user123")))
+        print(manager.search(config=config))
         ```
 
     In the examples above, we were calling the manager in the main thread. In a real application, you'll
@@ -2038,14 +2067,14 @@ def create_memory_store_manager(
 
             return fut
 
-
+        config = {"configurable": {"user_id": "user-123"}}
         fut = await chat.ainvoke(
             [{"role": "user", "content": "I prefer dark mode in my apps"}],
-            config={"configurable": {"user_id": "user-123"}},
+            config=config,
         )
         # Inspect the result
         fut.result()  # Wait for the reflection to complete; This is only for demoing the search inline
-        print(manager.search(("memories", "user-123")))
+        print(manager.search(query="app preferences", config=config))
         ```
     """
     return MemoryStoreManager(

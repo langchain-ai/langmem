@@ -10,3 +10,4 @@ title: Memory API Reference
       members:
         - create_memory_manager
         - create_memory_store_manager
+        - MemoryStoreManager
