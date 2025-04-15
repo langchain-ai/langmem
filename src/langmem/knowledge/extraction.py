@@ -1302,6 +1302,7 @@ class MemoryStoreManager(Runnable[MemoryStoreManagerInput, list[dict]]):
         key: str,
         *,
         refresh_ttl: typing.Optional[bool] = None,
+        config: typing.Optional[RunnableConfig] = None,
     ) -> typing.Optional[Item]:
         """Retrieve a single item in the store.
 
@@ -1320,12 +1321,12 @@ class MemoryStoreManager(Runnable[MemoryStoreManagerInput, list[dict]]):
             item = store.get("report")
             ```
         """
-        namespace = self.get_namespace()
+        namespace = self.get_namespace(config)
         result = self._coerce_item(
             self.store.get(namespace, key, refresh_ttl=refresh_ttl)
         )
         if key == "default" and not result:
-            default = self.default_factory(ensure_config())
+            default = self.default_factory(ensure_config(config))
             coerced = self._coerce_default(default, self.schemas)
             now = datetime.datetime.now(datetime.timezone.utc)
             return Item(namespace, "default", coerced, created_at=now, updated_at=now)
@@ -1339,6 +1340,7 @@ class MemoryStoreManager(Runnable[MemoryStoreManagerInput, list[dict]]):
         limit: int = 10,
         offset: int = 0,
         refresh_ttl: typing.Optional[bool] = None,
+        config: typing.Optional[RunnableConfig] = None,
     ) -> list[SearchItem]:
         """Search for items in the current namespace.
 
@@ -1370,7 +1372,7 @@ class MemoryStoreManager(Runnable[MemoryStoreManagerInput, list[dict]]):
             )
             ```
         """
-        namespace = self.get_namespace()
+        namespace = self.get_namespace(config)
         results = [
             self._coerce_search_item(it)
             for it in self.store.search(
@@ -1383,8 +1385,7 @@ class MemoryStoreManager(Runnable[MemoryStoreManagerInput, list[dict]]):
             )
         ]
         if self.default_factory and not results:
-            config = ensure_config()
-            default = self.default_factory(config)
+            default = self.default_factory(ensure_config(config))
             coerced = self._coerce_default(default, self.schemas)
             now = datetime.datetime.now(datetime.timezone.utc)
             return [
@@ -1401,6 +1402,7 @@ class MemoryStoreManager(Runnable[MemoryStoreManagerInput, list[dict]]):
         index: typing.Optional[typing.Union[typing.Literal[False], list[str]]] = None,
         *,
         ttl: typing.Union[typing.Optional[float], "NotProvided"] = NOT_PROVIDED,
+        config: typing.Optional[RunnableConfig] = None,
     ) -> None:
         """Store or update an item in the store.
 
@@ -1439,26 +1441,27 @@ class MemoryStoreManager(Runnable[MemoryStoreManagerInput, list[dict]]):
             ```
         """
         return self.store.put(
-            self.get_namespace(),
+            self.get_namespace(config),
             key,
             value,
             index=index,
             ttl=ttl,
         )
 
-    def delete(self, key: str) -> None:
+    def delete(self, key: str, config: typing.Optional[RunnableConfig] = None) -> None:
         """Delete an item.
 
         Args:
             key: Unique identifier within the namespace.
         """
-        self.store.delete(self.get_namespace(), key)
+        self.store.delete(self.get_namespace(config), key)
 
     async def aget(
         self,
         key: str,
         *,
         refresh_ttl: typing.Optional[bool] = None,
+        config: typing.Optional[RunnableConfig] = None,
     ) -> typing.Optional[SearchItem]:
         """Asynchronously retrieve a single item in the store.
 
@@ -1477,10 +1480,10 @@ class MemoryStoreManager(Runnable[MemoryStoreManagerInput, list[dict]]):
             item = await store.aget("report")
             ```
         """
-        namespace = self.get_namespace()
+        namespace = self.get_namespace(config)
         it = await self.store.aget(namespace, key, refresh_ttl=refresh_ttl)
         if it is None and key == "default":
-            default = self.default_factory(ensure_config())
+            default = self.default_factory(ensure_config(config))
             coerced = self._coerce_default(default, self.schemas)
             now = datetime.datetime.now(datetime.timezone.utc)
             return Item(namespace, "default", coerced, created_at=now, updated_at=now)
@@ -1494,6 +1497,7 @@ class MemoryStoreManager(Runnable[MemoryStoreManagerInput, list[dict]]):
         limit: int = 10,
         offset: int = 0,
         refresh_ttl: typing.Optional[bool] = None,
+        config: typing.Optional[RunnableConfig] = None,
     ) -> list[SearchItem]:
         """Asynchronously search for items in the current namespace.
 
@@ -1528,7 +1532,7 @@ class MemoryStoreManager(Runnable[MemoryStoreManagerInput, list[dict]]):
             )
             ```
         """
-        namespace = self.get_namespace()
+        namespace = self.get_namespace(config)
         results = [
             self._coerce_search_item(it)
             for it in await self.store.asearch(
@@ -1541,8 +1545,7 @@ class MemoryStoreManager(Runnable[MemoryStoreManagerInput, list[dict]]):
             )
         ]
         if self.default_factory and not results:
-            config = ensure_config()
-            default = self.default_factory(config)
+            default = self.default_factory(ensure_config(config))
             coerced = self._coerce_default(default, self.schemas)
             now = datetime.datetime.now(datetime.timezone.utc)
             # note that we don't actually put this in the store here!
@@ -1560,6 +1563,7 @@ class MemoryStoreManager(Runnable[MemoryStoreManagerInput, list[dict]]):
         index: typing.Optional[typing.Union[typing.Literal[False], list[str]]] = None,
         *,
         ttl: typing.Union[typing.Optional[float], "NotProvided"] = NOT_PROVIDED,
+        config: typing.Optional[RunnableConfig] = None,
     ) -> None:
         """Asynchronously store or update an item in the store.
 
@@ -1621,20 +1625,24 @@ class MemoryStoreManager(Runnable[MemoryStoreManagerInput, list[dict]]):
             )
             ```
         """
-        return await self.store.aput(self.get_namespace(), key, value, index, ttl=ttl)
+        return await self.store.aput(
+            self.get_namespace(config), key, value, index, ttl=ttl
+        )
 
-    async def adelete(self, key: str) -> None:
+    async def adelete(
+        self, key: str, config: typing.Optional[RunnableConfig] = None
+    ) -> None:
         """Asynchronously delete an item.
 
         Args:
             key: Unique identifier within the namespace.
         """
-        await self.store.adelete(self.get_namespace(), key)
+        await self.store.adelete(self.get_namespace(config), key)
 
     def get_namespace(
         self, config: typing.Optional[RunnableConfig] = None
     ) -> tuple[str, ...]:
-        return self.namespace(config or ensure_config(config))
+        return self.namespace(ensure_config(config))
 
 
 def create_memory_store_manager(
@@ -2037,7 +2045,7 @@ def create_memory_store_manager(
         )
         # Inspect the result
         fut.result()  # Wait for the reflection to complete; This is only for demoing the search inline
-        print(store.search(("memories", "user-123")))
+        print(manager.search(("memories", "user-123")))
         ```
     """
     return MemoryStoreManager(
