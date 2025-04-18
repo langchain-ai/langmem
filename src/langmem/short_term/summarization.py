@@ -245,7 +245,7 @@ def summarize_messages(
         if strict:
             raise ValueError(msg)
         else:
-            warnings.warn(msg)
+            warnings.warn(msg, RuntimeWarning)
 
     # Go through messages to count tokens and find cutoff point
     n_tokens = 0
