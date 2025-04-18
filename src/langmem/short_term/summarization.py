@@ -231,18 +231,28 @@ def summarize_messages(
                 total_summarized_messages = i + 1
                 break
 
-    # Go through messages to count tokens and find cutoff point
-    n_tokens = 0
-    idx = max(0, total_summarized_messages - 1)
+    total_n_tokens = token_counter(messages[total_summarized_messages:])
     # We need to output messages that fit within max_tokens.
     # For summarization, we allow up to max_tokens_before_summary tokens to be processed,
     # and we need to reserve max_summary_tokens from the max_tokens budget for the summary.
     # So in total, we can process at most max_tokens_before_summary + (max_tokens - max_summary_tokens) tokens.
     max_total_tokens = max_tokens_before_summary + max_remaining_tokens
+    if total_n_tokens > max_total_tokens:
+        msg = (
+            f"Resulting message history will exceed max_tokens limit ({max_tokens}). "
+            "Please adjust `max_tokens` / `max_tokens_before_summary` or decrease the input size."
+        )
+        if strict:
+            raise ValueError(msg)
+        else:
+            warnings.warn(msg)
 
-    # Dictionary to map tool call IDs to their corresponding tool messages
+    # Go through messages to count tokens and find cutoff point
+    n_tokens = 0
+    idx = max(0, total_summarized_messages - 1)
+    # map tool call IDs to their corresponding tool messages
     tool_call_id_to_tool_message: dict[str, ToolMessage] = {}
-
+    should_summarize = False
     for i in range(total_summarized_messages, len(messages)):
         message = messages[i]
         if message.id is None:
@@ -259,24 +269,18 @@ def summarize_messages(
 
         n_tokens += token_counter([message])
 
-        # If we're still under max_tokens_to_summarize, update the potential cutoff point
-        if n_tokens <= max_tokens_to_summarize:
+        # Check if we've reached max_tokens_to_summarize
+        # and the remaining messages fit within the max_remaining_tokens budget
+        if (
+            n_tokens >= max_tokens_to_summarize
+            and total_n_tokens - n_tokens <= max_remaining_tokens
+            and not should_summarize
+        ):
+            should_summarize = True
             idx = i
 
-        # Check if we've exceeded the absolute maximum
-        if n_tokens > max_total_tokens:
-            msg = (
-                f"Resulting message history will exceed max_tokens limit ({max_tokens}). "
-                "Please adjust `max_tokens` / `max_tokens_before_summary` or decrease the input size."
-            )
-            if strict:
-                raise ValueError(msg)
-            else:
-                warnings.warn(msg)
-
-    # If we haven't exceeded max_tokens_before_summary, we don't need to summarize
     # Note: we don't return here since we might still need to include the existing summary
-    if n_tokens <= max_tokens_before_summary:
+    if not should_summarize:
         messages_to_summarize = []
     else:
         messages_to_summarize = messages[total_summarized_messages : idx + 1]
@@ -292,7 +296,9 @@ def summarize_messages(
         # Add any matching tool messages from our dictionary
         for tool_call in tool_calls:
             if tool_call["id"] in tool_call_id_to_tool_message:
-                messages_to_summarize.append(tool_call_id_to_tool_message[tool_call["id"]])
+                messages_to_summarize.append(
+                    tool_call_id_to_tool_message[tool_call["id"]]
+                )
 
     if messages_to_summarize:
         if running_summary:
