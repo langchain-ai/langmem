@@ -73,6 +73,7 @@ and return `[summary_message] + remaining_messages`
 allows `summarize_messages` to avoid re-summarizing the same
 messages on every conversation turn.
 4. This is the max token budget for the resulting list of messages after summarization.
+5. This is the token threshold at which summarization will kick in. Defaults to `max_tokens`.
 6. If we generated a summary, add it as a state update and overwrite
 the previously generated summary, if any.
 7. It's important to compile the graph with a checkpointer,
