@@ -6,10 +6,10 @@ from langchain_core.language_models import LanguageModelLike
 from langchain_core.messages import (
     AIMessage,
     AnyMessage,
-    HumanMessage,
     MessageLikeRepresentation,
     RemoveMessage,
     SystemMessage,
+    ToolMessage,
 )
 from langchain_core.messages.utils import count_tokens_approximately
 from langchain_core.prompts.chat import ChatPromptTemplate, ChatPromptValue
@@ -239,6 +239,10 @@ def summarize_messages(
     # and we need to reserve max_summary_tokens from the max_tokens budget for the summary.
     # So in total, we can process at most max_tokens_before_summary + (max_tokens - max_summary_tokens) tokens.
     max_total_tokens = max_tokens_before_summary + max_remaining_tokens
+
+    # Dictionary to map tool call IDs to their corresponding tool messages
+    tool_call_id_to_tool_message: dict[str, ToolMessage] = {}
+
     for i in range(total_summarized_messages, len(messages)):
         message = messages[i]
         if message.id is None:
@@ -248,6 +252,10 @@ def summarize_messages(
             raise ValueError(
                 f"Message with ID {message.id} has already been summarized."
             )
+
+        # Store tool messages by their tool_call_id for later reference
+        if isinstance(message, ToolMessage) and message.tool_call_id:
+            tool_call_id_to_tool_message[message.tool_call_id] = message
 
         n_tokens += token_counter([message])
 
@@ -273,19 +281,18 @@ def summarize_messages(
     else:
         messages_to_summarize = messages[total_summarized_messages : idx + 1]
 
-    # If the last message is:
-    # (1) an AI message with tool calls - remove it
-    #   to avoid issues w/ the LLM provider (as it will lack a corresponding tool message)
-    # (2) a human message - remove it,
-    #   since it is a user input and it doesn't make sense to summarize it without a corresponding AI message
-    while messages_to_summarize and (
-        (
-            isinstance(messages_to_summarize[-1], AIMessage)
-            and messages_to_summarize[-1].tool_calls
-        )
-        or isinstance(messages_to_summarize[-1], HumanMessage)
+    # If the last message is an AI message with tool calls,
+    # include subsequent corresponding tool messages in the summary as well,
+    # to avoid issues w/ the LLM provider
+    if (
+        messages_to_summarize
+        and isinstance(messages_to_summarize[-1], AIMessage)
+        and (tool_calls := messages_to_summarize[-1].tool_calls)
     ):
-        messages_to_summarize.pop()
+        # Add any matching tool messages from our dictionary
+        for tool_call in tool_calls:
+            if tool_call["id"] in tool_call_id_to_tool_message:
+                messages_to_summarize.append(tool_call_id_to_tool_message[tool_call["id"]])
 
     if messages_to_summarize:
         if running_summary:

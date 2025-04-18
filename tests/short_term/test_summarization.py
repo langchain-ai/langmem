@@ -437,8 +437,8 @@ def test_subsequent_summarization_with_new_messages():
         AIMessage(content="Response to latest 1", id="8"),
         HumanMessage(content="Message 4", id="9"),
         AIMessage(content="Response 4", id="10"),
-        # these will be kept in the final result
         HumanMessage(content="Message 5", id="11"),
+        # these will be kept in the final result
         AIMessage(content="Response 5", id="12"),
         HumanMessage(content="Message 6", id="13"),
         AIMessage(content="Response 6", id="14"),
@@ -470,24 +470,25 @@ def test_subsequent_summarization_with_new_messages():
     assert "Extend this summary" in prompt_message.content
 
     # Check that only the new messages are sent to the model, not already summarized ones
-    assert len(second_call_messages) == 5  # 4 messages + prompt
+    assert len(second_call_messages) == 6  # 5 messages + prompt
     assert [msg.content for msg in second_call_messages[:-1]] == [
         "Latest message 1",
         "Response to latest 1",
         "Message 4",
         "Response 4",
+        "Message 5",
     ]
 
     # Verify the structure of the final result
     assert "summary" in result2.messages[0].content.lower()
-    assert len(result2.messages) == 6  # Summary + last 4 messages
-    assert result2.messages[-5:] == messages2[-5:]
+    assert len(result2.messages) == 5  # Summary + last 4 messages
+    assert result2.messages[-4:] == messages2[-4:]
 
     # Check the updated summary
     updated_summary_value = result2.running_summary
     assert updated_summary_value.summary == "Updated summary including new messages."
-    # Verify all messages except the last 5 were summarized
-    assert len(updated_summary_value.summarized_message_ids) == len(messages2) - 5
+    # Verify all messages except the last 4 were summarized
+    assert len(updated_summary_value.summarized_message_ids) == len(messages2) - 4
 
 
 def test_subsequent_summarization_with_new_messages_approximate_token_counter():
@@ -593,7 +594,7 @@ def test_subsequent_summarization_with_new_messages_approximate_token_counter():
     assert len(updated_summary_value.summarized_message_ids) == len(messages2) - 5
 
 
-def test_last_ai_with_tool_calls_not_summarized():
+def test_last_ai_with_tool_calls():
     model = FakeChatModel(responses=[AIMessage(content="Summary without tool calls.")])
 
     messages = [
@@ -602,16 +603,16 @@ def test_last_ai_with_tool_calls_not_summarized():
         AIMessage(
             content="",
             id="2",
-            tool_calls=[{"name": "tool_1", "id": "1", "args": {"arg1": "value1"}}],
+            tool_calls=[
+                {"name": "tool_1", "id": "1", "args": {"arg1": "value1"}},
+                {"name": "tool_2", "id": "2", "args": {"arg1": "value1"}},
+            ],
         ),
-        ToolMessage(content="Call other tool", tool_call_id="1", id="3"),
+        ToolMessage(content="Call tool 1", tool_call_id="1", name="tool_1", id="3"),
+        ToolMessage(content="Call tool 2", tool_call_id="2", name="tool_2", id="4"),
         # these will be kept in the final result
-        AIMessage(
-            content="",
-            id="4",
-            tool_calls=[{"name": "tool_2", "id": "2", "args": {"arg1": "value1"}}],
-        ),
-        HumanMessage(content="Message 2", id="5"),
+        AIMessage(content="Response 1", id="5"),
+        HumanMessage(content="Message 2", id="6"),
     ]
 
     # Call the summarizer
@@ -620,48 +621,15 @@ def test_last_ai_with_tool_calls_not_summarized():
         running_summary=None,
         model=model,
         token_counter=len,
-        max_tokens=4,
+        max_tokens_before_summary=2,
+        max_tokens=6,
         max_summary_tokens=1,
     )
 
-    # Check that the AI message with tool calls wasn't summarized
+    # Check that the AI message with tool calls was summarized together with the tool messages
     assert len(result.messages) == 3
     assert result.messages[0].type == "system"  # Summary
-    assert result.messages[-2:] == messages[-2:]  # The AI message with tool calls
-    assert result.running_summary.summarized_message_ids == set(
-        msg.id for msg in messages[:-2]
-    )
-
-
-def test_last_human_message_not_summarized():
-    model = FakeChatModel(
-        responses=[AIMessage(content="Summary without last human message.")]
-    )
-
-    # Create messages where the last one is from human
-    messages = [
-        AIMessage(content="Response 1", id="1"),
-        HumanMessage(content="Message 2", id="2"),
-        AIMessage(content="Response 2", id="3"),
-        # these will be kept in the final result
-        HumanMessage(content="Message 3", id="4"),
-        AIMessage(content="Response 3", id="5"),
-    ]
-
-    # Call the summarizer
-    result = summarize_messages(
-        messages,
-        running_summary=None,
-        model=model,
-        token_counter=len,
-        max_tokens=4,  # This would normally include all messages
-        max_summary_tokens=1,
-    )
-
-    # Check that the last human message wasn't summarized
-    assert len(result.messages) == 3
-    assert result.messages[0].type == "system"  # Summary
-    assert result.messages[-2:] == messages[-2:]  # The last human message
+    assert result.messages[-2:] == messages[-2:]
     assert result.running_summary.summarized_message_ids == set(
         msg.id for msg in messages[:-2]
     )
@@ -770,8 +738,8 @@ def test_summarization_updated_messages():
         AIMessage(content="Response to latest 1", id="8"),
         HumanMessage(content="Message 4", id="9"),
         AIMessage(content="Response 4", id="10"),
-        # these will be kept in the final result
         HumanMessage(content="Message 5", id="11"),
+        # these will be kept in the final result
         AIMessage(content="Response 5", id="12"),
         HumanMessage(content="Message 6", id="13"),
         AIMessage(content="Response 6", id="14"),
@@ -804,24 +772,25 @@ def test_summarization_updated_messages():
     assert "Extend this summary" in prompt_message.content
 
     # Check that only the new messages are sent to the model, not already summarized ones
-    assert len(second_call_messages) == 5  # 4 messages + prompt
+    assert len(second_call_messages) == 6  # 5 messages + prompt
     assert [msg.content for msg in second_call_messages[:-1]] == [
         "Latest message 1",
         "Response to latest 1",
         "Message 4",
         "Response 4",
+        "Message 5",
     ]
 
     # Verify the structure of the final result
     assert "summary" in result2.messages[0].content.lower()
-    assert len(result2.messages) == 6  # Summary + last 4 messages
-    assert result2.messages[-5:] == messages2[-5:]
+    assert len(result2.messages) == 5  # Summary + last 4 messages
+    assert result2.messages[-4:] == messages2[-4:]
 
     # Check the updated summary
     updated_summary_value = result2.running_summary
     assert updated_summary_value.summary == "Updated summary including new messages."
-    # Verify all messages except the last 5 were summarized
-    assert len(updated_summary_value.summarized_message_ids) == 6 + 4  # 6 from first summarization + 4 from second
+    # Verify all messages except the last 4 were summarized
+    assert len(updated_summary_value.summarized_message_ids) == 6 + 5  # 6 from first summarization + 5 from second
 
 
 def test_summarization_node():
@@ -938,8 +907,8 @@ def test_summarization_node_same_key():
         AIMessage(content="Response to latest 1", id="8"),
         HumanMessage(content="Message 4", id="9"),
         AIMessage(content="Response 4", id="10"),
-        # these will be kept in the final result
         HumanMessage(content="Message 5", id="11"),
+        # these will be kept in the final result
         AIMessage(content="Response 5", id="12"),
         HumanMessage(content="Message 6", id="13"),
         AIMessage(content="Response 6", id="14"),
@@ -965,22 +934,23 @@ def test_summarization_node_same_key():
     assert "Extend this summary" in prompt_message.content
 
     # Check that only the new messages are sent to the model, not already summarized ones
-    assert len(second_call_messages) == 5  # 4 messages + prompt
+    assert len(second_call_messages) == 6  # 5 messages + prompt
     assert [msg.content for msg in second_call_messages[:-1]] == [
         "Latest message 1",
         "Response to latest 1",
         "Message 4",
         "Response 4",
+        "Message 5",
     ]
 
     # Verify the structure of the final result
     assert result2["messages"][0].type == "remove"
     assert "summary" in result2["messages"][1].content.lower()
-    assert len(result2["messages"]) == 7  # Remove message + summary + last 4 messages
-    assert result2["messages"][-5:] == messages2[-5:]
+    assert len(result2["messages"]) == 6  # Remove message + summary + last 4 messages
+    assert result2["messages"][-4:] == messages2[-4:]
 
     # Check the updated summary
     updated_summary_value = result2["context"]["running_summary"]
     assert updated_summary_value.summary == "Updated summary including new messages."
-    # Verify all messages except the last 5 were summarized
-    assert len(updated_summary_value.summarized_message_ids) == 6 + 4  # 6 from first summarization + 4 from second
+    # Verify all messages except the last 4 were summarized
+    assert len(updated_summary_value.summarized_message_ids) == 6 + 5  # 6 from first summarization + 5 from second
