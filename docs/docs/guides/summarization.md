@@ -165,8 +165,13 @@ class State(MessagesState):
     context: dict[str, Any]
 
 def search(query: str):
-    """Search the web for realtim information like weather forecasts."""
-    return "The weather is sunny in New York, with a high of 104 degrees."
+    """Search the web."""
+    if "weather" in query.lower():
+        return "The weather is sunny in New York, with a high of 104 degrees."
+    elif "broadway" in query.lower():
+        return "Hamilton is always on!"
+    else:
+        raise "Not enough information"
 
 tools = [search]
 
@@ -177,6 +182,7 @@ summarization_node = SummarizationNode(
     token_counter=model.get_num_tokens_from_messages,
     model=summarization_model,
     max_tokens=256,
+    max_tokens_before_summary=1024,
     max_summary_tokens=128,
 )
 
