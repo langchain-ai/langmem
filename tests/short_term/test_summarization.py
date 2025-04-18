@@ -175,7 +175,7 @@ def test_summarize_first_time():
     assert summary_value.summary == "This is a summary of the conversation."
     assert summary_value.summarized_message_ids == set(
         msg.id for msg in messages[:6]
-    )  # All messages except the latest
+    )
 
     # Test subsequent invocation (no new summary needed)
     result = summarize_messages(
@@ -193,6 +193,76 @@ def test_summarize_first_time():
         == "Summary of the conversation so far: This is a summary of the conversation."
     )
     assert result.messages[1:] == messages[-3:]
+
+
+def test_max_tokens_before_summary():
+    model = FakeChatModel(
+        responses=[AIMessage(content="This is a summary of the conversation.")]
+    )
+
+    # Create enough messages to trigger summarization
+    messages = [
+        # these messages will be summarized
+        HumanMessage(content="Message 1", id="1"),
+        AIMessage(content="Response 1", id="2"),
+        HumanMessage(content="Message 2", id="3"),
+        AIMessage(content="Response 2", id="4"),
+        HumanMessage(content="Message 3", id="5"),
+        AIMessage(content="Response 3", id="6"),
+        HumanMessage(content="Message 4", id="7"),
+        AIMessage(content="Response 4", id="8"),
+        # these messages will be added to the result post-summarization
+        HumanMessage(content="Latest message", id="9"),
+    ]
+
+    # Call the summarizer
+    max_summary_tokens = 1
+    result = summarize_messages(
+        messages,
+        running_summary=None,
+        model=model,
+        token_counter=len,
+        max_tokens=6,
+        max_tokens_before_summary=8,
+        max_summary_tokens=max_summary_tokens,
+    )
+
+    # Check that model was called
+    assert len(model.invoke_calls) == 1
+
+    # Check that the result has the expected structure:
+    # - First message should be a summary
+    # - Last message should be the last original message
+    assert len(result.messages) == 2
+    assert result.messages[0].type == "system"
+    assert "summary" in result.messages[0].content.lower()
+    assert result.messages[1:] == messages[-1:]
+
+    # Check the summary value
+    summary_value = result.running_summary
+    assert summary_value is not None
+    assert summary_value.summary == "This is a summary of the conversation."
+    assert summary_value.summarized_message_ids == set(
+        msg.id for msg in messages[:8]
+    )  # All messages except the latest
+
+    # Test subsequent invocation (no new summary needed)
+    result = summarize_messages(
+        messages,
+        running_summary=summary_value,
+        model=model,
+        token_counter=len,
+        max_tokens=6,
+        max_tokens_before_summary=8,
+        max_summary_tokens=max_summary_tokens,
+    )
+    assert len(result.messages) == 2
+    assert result.messages[0].type == "system"
+    assert (
+        result.messages[0].content
+        == "Summary of the conversation so far: This is a summary of the conversation."
+    )
+    assert result.messages[1:] == messages[-1:]
 
 
 def test_with_system_message():
