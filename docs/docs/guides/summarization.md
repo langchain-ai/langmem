@@ -19,11 +19,8 @@ from langmem.short_term import summarize_messages, RunningSummary
 from langchain_openai import ChatOpenAI
 
 model = ChatOpenAI(model="gpt-4o")
-# NOTE: we're also setting max output tokens for the summary
-# this should match max_summary_tokens in `summarize_messages` for better
-# token budget estimates
 # highlight-next-line
-summarization_model = model.bind(max_tokens=128)
+summarization_model = model.bind(max_tokens=128)  # (1)!
 
 # We will keep track of our running summary in the graph state
 class SummaryState(MessagesState):
@@ -31,31 +28,22 @@ class SummaryState(MessagesState):
 
 # Define the node that will be calling the LLM
 def call_model(state: SummaryState) -> SummaryState:
-    # We will attempt to summarize messages before the LLM is called
-    # If the messages in state["messages"] fit into max tokens budget,
-    # we will simply return those messages. Otherwise, we will summarize
-    # and return [summary_message] + remaining_messages
     # highlight-next-line
-    summarization_result = summarize_messages(
+    summarization_result = summarize_messages(  # (2)!
         state["messages"],
-        # IMPORTANT: Pass running summary, if any. This is what
-        # allows summarize_messages to avoid re-summarizing the same
-        # messages on every conversation turn
+        # IMPORTANT: Pass running summary, if any
         # highlight-next-line
-        running_summary=state.get("summary"),
-        # by default this is using approximate token counting,
-        # but you can also use LLM-specific one, like below
+        running_summary=state.get("summary"),  # (3)!
         # highlight-next-line
         token_counter=model.get_num_tokens_from_messages,
         model=summarization_model, 
-        max_tokens=256,
+        max_tokens=256,  # (4)!
+        max_tokens_before_summary=256,  # (5)!
         max_summary_tokens=128
     )
     response = model.invoke(summarization_result.messages)
     state_update = {"messages": [response]}
-    # If we generated a summary, add it as a state update and overwrite
-    # the previously generated summary, if any
-    if summarization_result.running_summary:
+    if summarization_result.running_summary:  # (6)!
         state_update["summary"] = summarization_result.running_summary
     return state_update
 
@@ -64,10 +52,8 @@ checkpointer = InMemorySaver()
 builder = StateGraph(SummaryState)
 builder.add_node(call_model)
 builder.add_edge(START, "call_model")
-# It's important to compile the graph with a checkpointer,
-# otherwise the graph won't remember previous conversation turns
 # highlight-next-line
-graph = builder.compile(checkpointer=checkpointer)
+graph = builder.compile(checkpointer=checkpointer)  # (7)!
 
 # Invoke the graph
 config = {"configurable": {"thread_id": "1"}}
@@ -76,6 +62,21 @@ graph.invoke({"messages": "write a short poem about cats"}, config)
 graph.invoke({"messages": "now do the same but for dogs"}, config)
 graph.invoke({"messages": "what's my name?"}, config)
 ```
+
+1. We're also setting max output tokens for the summarization model. This should match `max_summary_tokens` in `summarize_messages` for better
+token budget estimates.
+2. We will attempt to summarize messages before the LLM is called.
+If the messages in `state["messages"]` fit into `max_tokens_before_summary` budget,
+we will simply return those messages. Otherwise, we will summarize
+and return `[summary_message] + remaining_messages`
+3. Pass running summary, if any. This is what
+allows `summarize_messages` to avoid re-summarizing the same
+messages on every conversation turn.
+4. This is the max token budget for the resulting list of messages after summarization.
+6. If we generated a summary, add it as a state update and overwrite
+the previously generated summary, if any.
+7. It's important to compile the graph with a checkpointer,
+otherwise the graph won't remember previous conversation turns.
 
 !!! Note "Using in UI"
 
@@ -98,34 +99,27 @@ model = ChatOpenAI(model="gpt-4o")
 summarization_model = model.bind(max_tokens=128)
 
 
-# We will keep track of our running summary in the `context` field
-# (expected by the `SummarizationNode`)
 class State(MessagesState):
     # highlight-next-line
-    context: dict[str, Any]
+    context: dict[str, Any]  # (1)!
 
 
-# Define private state that will be used only for filtering
-# the inputs to call_model node
-class LLMInputState(TypedDict):
+class LLMInputState(TypedDict):  # (2)!
     summarized_messages: list[AnyMessage]
     context: dict[str, Any]
 
-# SummarizationNode uses `summarize_messages` under the hood and
-# automatically handles existing summary propagation that we had
-# to manually do in the above example 
 # highlight-next-line
-summarization_node = SummarizationNode(
+summarization_node = SummarizationNode(  # (3)!
     token_counter=model.get_num_tokens_from_messages,
     model=summarization_model,
     max_tokens=256,
+    max_tokens_before_summary=256,
     max_summary_tokens=128,
 )
 
-# The model-calling node now is simply a single LLM invocation
 # IMPORTANT: we're passing a private input state here to isolate the summarization
 # highlight-next-line
-def call_model(state: LLMInputState):
+def call_model(state: LLMInputState):  # (4)!
     response = model.invoke(state["summarized_messages"])
     return {"messages": [response]}
 
@@ -145,6 +139,15 @@ graph.invoke({"messages": "write a short poem about cats"}, config)
 graph.invoke({"messages": "now do the same but for dogs"}, config)
 graph.invoke({"messages": "what's my name?"}, config)
 ```
+
+1. We will keep track of our running summary in the `context` field
+(expected by the `SummarizationNode`).
+2. Define private state that will be used only for filtering
+the inputs to `call_model` node.
+3. SummarizationNode uses `summarize_messages` under the hood and
+automatically handles existing summary propagation that we had
+to manually do in the above example.
+4. The model-calling node now is simply a single LLM invocation.
 
 ## Using in a ReAct Agent
 
@@ -212,9 +215,8 @@ builder.add_node("tools", ToolNode(tools))
 builder.set_entry_point("summarize_node")
 builder.add_edge("summarize_node", "call_model")
 builder.add_conditional_edges("call_model", should_continue, path_map=["tools", END])
-# instead of returning to LLM after executing tools, we first return to the summarization node
 # highlight-next-line
-builder.add_edge("tools", "summarize_node")
+builder.add_edge("tools", "summarize_node")  # (1)!
 graph = builder.compile(checkpointer=checkpointer)
 
 # Invoke the graph
@@ -223,3 +225,5 @@ graph.invoke({"messages": "hi, i am bob"}, config)
 graph.invoke({"messages": "what's the weather in nyc this weekend"}, config)
 graph.invoke({"messages": "what's new on broadway?"}, config)
 ```
+
+1. Instead of returning to LLM after executing tools, we first return to the summarization node.
