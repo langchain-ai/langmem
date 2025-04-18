@@ -1,3 +1,4 @@
+import warnings
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable, cast
 
@@ -90,6 +91,7 @@ def summarize_messages(
     initial_summary_prompt: ChatPromptTemplate = DEFAULT_INITIAL_SUMMARY_PROMPT,
     existing_summary_prompt: ChatPromptTemplate = DEFAULT_EXISTING_SUMMARY_PROMPT,
     final_prompt: ChatPromptTemplate = DEFAULT_FINAL_SUMMARY_PROMPT,
+    strict: bool = False,
 ) -> SummarizationResult:
     """Summarize messages when they exceed a token limit and replace them with a summary message.
 
@@ -126,6 +128,9 @@ def summarize_messages(
         initial_summary_prompt: Prompt template for generating the first summary.
         existing_summary_prompt: Prompt template for updating an existing (running) summary.
         final_prompt: Prompt template that combines summary with the remaining messages before returning.
+        strict: How to handle the case where the resulting message history exceeds the max_tokens limit.
+            If True, raise an error.
+            If False, warn (default).
 
     Returns:
         A SummarizationResult object containing the updated messages and a running summary.
@@ -252,11 +257,14 @@ def summarize_messages(
 
         # Check if we've exceeded the absolute maximum
         if n_tokens > max_total_tokens:
-            raise ValueError(
-                f"`summarize_messages` cannot handle more than {max_total_tokens} tokens: "
-                f"resulting message history will exceed max_tokens limit ({max_tokens}). "
-                "Please adjust `max_tokens` / `max_summary_tokens` or decrease the input size."
+            msg = (
+                f"Resulting message history will exceed max_tokens limit ({max_tokens}). "
+                "Please adjust `max_tokens` / `max_tokens_before_summary` or decrease the input size."
             )
+            if strict:
+                raise ValueError(msg)
+            else:
+                warnings.warn(msg)
 
     # If we haven't exceeded max_tokens_before_summary, we don't need to summarize
     # Note: we don't return here since we might still need to include the existing summary
@@ -357,6 +365,7 @@ class SummarizationNode(RunnableCallable):
         initial_summary_prompt: ChatPromptTemplate = DEFAULT_INITIAL_SUMMARY_PROMPT,
         existing_summary_prompt: ChatPromptTemplate = DEFAULT_EXISTING_SUMMARY_PROMPT,
         final_prompt: ChatPromptTemplate = DEFAULT_FINAL_SUMMARY_PROMPT,
+        strict: bool = False,
         input_messages_key: str = "messages",
         output_messages_key: str = "summarized_messages",
         name: str = "summarization",
@@ -391,6 +400,9 @@ class SummarizationNode(RunnableCallable):
             initial_summary_prompt: Prompt template for generating the first summary.
             existing_summary_prompt: Prompt template for updating an existing (running) summary.
             final_prompt: Prompt template that combines summary with the remaining messages before returning.
+            strict: How to handle the case where the resulting message history exceeds the max_tokens limit.
+                If True, raise an error.
+                If False, warn (default).
             input_messages_key: Key in the input graph state that contains the list of messages to summarize.
             output_messages_key: Key in the state update that contains the list of updated messages.
                 !!! Warning
@@ -469,6 +481,7 @@ class SummarizationNode(RunnableCallable):
         self.initial_summary_prompt = initial_summary_prompt
         self.existing_summary_prompt = existing_summary_prompt
         self.final_prompt = final_prompt
+        self.strict = strict
         self.input_messages_key = input_messages_key
         self.output_messages_key = output_messages_key
 
@@ -498,6 +511,7 @@ class SummarizationNode(RunnableCallable):
             initial_summary_prompt=self.initial_summary_prompt,
             existing_summary_prompt=self.existing_summary_prompt,
             final_prompt=self.final_prompt,
+            strict=self.strict,
         )
 
         state_update = {self.output_messages_key: summarization_result.messages}

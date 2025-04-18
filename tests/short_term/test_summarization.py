@@ -106,6 +106,7 @@ def test_summarize_too_many_tokens():
             token_counter=len,
             max_tokens=5,
             max_summary_tokens=1,
+            strict=True,
         )
 
     # system message:
@@ -122,6 +123,7 @@ def test_summarize_too_many_tokens():
             token_counter=len,
             max_tokens=5,
             max_summary_tokens=1,
+            strict=True,
         )
 
 
