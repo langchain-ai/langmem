@@ -1,4 +1,3 @@
-import warnings
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable, cast
 
@@ -11,7 +10,7 @@ from langchain_core.messages import (
     SystemMessage,
     ToolMessage,
 )
-from langchain_core.messages.utils import count_tokens_approximately
+from langchain_core.messages.utils import count_tokens_approximately, trim_messages
 from langchain_core.prompts.chat import ChatPromptTemplate, ChatPromptValue
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langgraph.utils.runnable import RunnableCallable
@@ -91,7 +90,6 @@ def summarize_messages(
     initial_summary_prompt: ChatPromptTemplate = DEFAULT_INITIAL_SUMMARY_PROMPT,
     existing_summary_prompt: ChatPromptTemplate = DEFAULT_EXISTING_SUMMARY_PROMPT,
     final_prompt: ChatPromptTemplate = DEFAULT_FINAL_SUMMARY_PROMPT,
-    strict: bool = False,
 ) -> SummarizationResult:
     """Summarize messages when they exceed a token limit and replace them with a summary message.
 
@@ -113,8 +111,14 @@ def summarize_messages(
 
             !!! Note
 
-                If the last message within `max_tokens_before_summary` is an AI message with tool calls or a human message,
-                this message will not be summarized, and instead will be added to the returned messages.
+                If the last message within `max_tokens_before_summary` is an AI message with tool calls,
+                all of the subsequent, corresponding tool messages will be summarized as well.
+
+            !!! Note
+
+                If the number of tokens to be summarized is greater than max_tokens, only the last max_tokens amongst those
+                will be summarized. This is done to prevent exceeding the context window of the summarization LLM
+                (assumed to be capped at max_tokens).
         max_summary_tokens: Maximum number of tokens to budget for the summary.
 
             !!! Note
@@ -128,9 +132,6 @@ def summarize_messages(
         initial_summary_prompt: Prompt template for generating the first summary.
         existing_summary_prompt: Prompt template for updating an existing (running) summary.
         final_prompt: Prompt template that combines summary with the remaining messages before returning.
-        strict: How to handle the case where the resulting message history exceeds the max_tokens limit.
-            If True, raise an error.
-            If False, warn (default).
 
     Returns:
         A SummarizationResult object containing the updated messages and a running summary.
@@ -191,7 +192,7 @@ def summarize_messages(
     if max_tokens_before_summary is None:
         max_tokens_before_summary = max_tokens
 
-    max_tokens_to_summarize = max_tokens_before_summary
+    max_tokens_to_summarize = max_tokens
     # Adjust the remaining token budget to account for the summary to be added
     max_remaining_tokens = max_tokens - max_summary_tokens
     # First handle system message if present
@@ -231,21 +232,9 @@ def summarize_messages(
                 total_summarized_messages = i + 1
                 break
 
+    # We will use this to ensure that the total number of resulting tokens
+    # will fit into max_tokens window.
     total_n_tokens = token_counter(messages[total_summarized_messages:])
-    # We need to output messages that fit within max_tokens.
-    # For summarization, we allow up to max_tokens_before_summary tokens to be processed,
-    # and we need to reserve max_summary_tokens from the max_tokens budget for the summary.
-    # So in total, we can process at most max_tokens_before_summary + (max_tokens - max_summary_tokens) tokens.
-    max_total_tokens = max_tokens_before_summary + max_remaining_tokens
-    if total_n_tokens > max_total_tokens:
-        msg = (
-            f"Resulting message history will exceed max_tokens limit ({max_tokens}). "
-            "Please adjust `max_tokens` / `max_tokens_before_summary` or decrease the input size."
-        )
-        if strict:
-            raise ValueError(msg)
-        else:
-            warnings.warn(msg, RuntimeWarning)
 
     # Go through messages to count tokens and find cutoff point
     n_tokens = 0
@@ -253,6 +242,7 @@ def summarize_messages(
     # map tool call IDs to their corresponding tool messages
     tool_call_id_to_tool_message: dict[str, ToolMessage] = {}
     should_summarize = False
+    n_tokens_to_summarize = 0
     for i in range(total_summarized_messages, len(messages)):
         message = messages[i]
         if message.id is None:
@@ -272,10 +262,11 @@ def summarize_messages(
         # Check if we've reached max_tokens_to_summarize
         # and the remaining messages fit within the max_remaining_tokens budget
         if (
-            n_tokens >= max_tokens_to_summarize
+            n_tokens >= max_tokens_before_summary
             and total_n_tokens - n_tokens <= max_remaining_tokens
             and not should_summarize
         ):
+            n_tokens_to_summarize = n_tokens
             should_summarize = True
             idx = i
 
@@ -296,17 +287,33 @@ def summarize_messages(
         # Add any matching tool messages from our dictionary
         for tool_call in tool_calls:
             if tool_call["id"] in tool_call_id_to_tool_message:
-                messages_to_summarize.append(
-                    tool_call_id_to_tool_message[tool_call["id"]]
-                )
+                tool_message = tool_call_id_to_tool_message[tool_call["id"]]
+                n_tokens_to_summarize += token_counter([tool_message])
+                messages_to_summarize.append(tool_message)
 
     if messages_to_summarize:
+        # Check if the number of tokens to summarize exceeds max_tokens.
+        # If it does, filter out the oldest messages to make it fit within max_tokens.
+        # The reason we do this is to ensure that we don't exceed context window of the summarization LLM,
+        # and we make an assumption that the same model is used both for the underlying app and for summarization.
+        if n_tokens_to_summarize > max_tokens_to_summarize:
+            adjusted_messages_to_summarize = trim_messages(
+                messages_to_summarize,
+                max_tokens=max_tokens_to_summarize,
+                token_counter=token_counter,
+                start_on="human",
+                strategy="last",
+                allow_partial=True,
+            )
+        else:
+            adjusted_messages_to_summarize = messages_to_summarize
+
         if running_summary:
             summary_messages = cast(
                 ChatPromptValue,
                 existing_summary_prompt.invoke(
                     {
-                        "messages": messages_to_summarize,
+                        "messages": adjusted_messages_to_summarize,
                         "existing_summary": running_summary.summary,
                     }
                 ),
@@ -314,7 +321,9 @@ def summarize_messages(
         else:
             summary_messages = cast(
                 ChatPromptValue,
-                initial_summary_prompt.invoke({"messages": messages_to_summarize}),
+                initial_summary_prompt.invoke(
+                    {"messages": adjusted_messages_to_summarize}
+                ),
             )
 
         summary_response = model.invoke(summary_messages.messages)
@@ -378,7 +387,6 @@ class SummarizationNode(RunnableCallable):
         initial_summary_prompt: ChatPromptTemplate = DEFAULT_INITIAL_SUMMARY_PROMPT,
         existing_summary_prompt: ChatPromptTemplate = DEFAULT_EXISTING_SUMMARY_PROMPT,
         final_prompt: ChatPromptTemplate = DEFAULT_FINAL_SUMMARY_PROMPT,
-        strict: bool = False,
         input_messages_key: str = "messages",
         output_messages_key: str = "summarized_messages",
         name: str = "summarization",
@@ -391,15 +399,20 @@ class SummarizationNode(RunnableCallable):
 
         Args:
             model: The language model to use for generating summaries.
-            max_tokens: Maximum number of tokens to return in the final output.
             max_tokens_before_summary: Maximum number of tokens to accumulate before triggering summarization.
                 Defaults to the same value as `max_tokens` if not provided.
                 This allows fitting more tokens into the summarization LLM, if needed.
 
                 !!! Note
 
-                    If the last message within max_tokens_before_summary is an AI message with tool calls or a human message,
-                    this message will not be summarized, and instead will be added to the returned messages.
+                    If the last message within `max_tokens_before_summary` is an AI message with tool calls,
+                    all of the subsequent, corresponding tool messages will be summarized as well.
+
+                !!! Note
+
+                    If the number of tokens to be summarized is greater than max_tokens, only the last max_tokens amongst those
+                    will be summarized. This is done to prevent exceeding the context window of the summarization LLM
+                    (assumed to be capped at max_tokens).
             max_summary_tokens: Maximum number of tokens to budget for the summary.
 
                 !!! Note
@@ -413,9 +426,6 @@ class SummarizationNode(RunnableCallable):
             initial_summary_prompt: Prompt template for generating the first summary.
             existing_summary_prompt: Prompt template for updating an existing (running) summary.
             final_prompt: Prompt template that combines summary with the remaining messages before returning.
-            strict: How to handle the case where the resulting message history exceeds the max_tokens limit.
-                If True, raise an error.
-                If False, warn (default).
             input_messages_key: Key in the input graph state that contains the list of messages to summarize.
             output_messages_key: Key in the state update that contains the list of updated messages.
                 !!! Warning
@@ -494,7 +504,6 @@ class SummarizationNode(RunnableCallable):
         self.initial_summary_prompt = initial_summary_prompt
         self.existing_summary_prompt = existing_summary_prompt
         self.final_prompt = final_prompt
-        self.strict = strict
         self.input_messages_key = input_messages_key
         self.output_messages_key = output_messages_key
 
@@ -524,7 +533,6 @@ class SummarizationNode(RunnableCallable):
             initial_summary_prompt=self.initial_summary_prompt,
             existing_summary_prompt=self.existing_summary_prompt,
             final_prompt=self.final_prompt,
-            strict=self.strict,
         )
 
         state_update = {self.output_messages_key: summarization_result.messages}
