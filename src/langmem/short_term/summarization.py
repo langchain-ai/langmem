@@ -1,6 +1,7 @@
+import asyncio
+import warnings
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable, cast
-import warnings
 
 from langchain_core.language_models import LanguageModelLike
 from langchain_core.messages import (
@@ -79,7 +80,7 @@ class SummarizationResult:
     """
 
 
-def summarize_messages(
+async def _run_summarization(
     messages: list[AnyMessage],
     *,
     running_summary: RunningSummary | None,
@@ -91,8 +92,9 @@ def summarize_messages(
     initial_summary_prompt: ChatPromptTemplate = DEFAULT_INITIAL_SUMMARY_PROMPT,
     existing_summary_prompt: ChatPromptTemplate = DEFAULT_EXISTING_SUMMARY_PROMPT,
     final_prompt: ChatPromptTemplate = DEFAULT_FINAL_SUMMARY_PROMPT,
+    is_async: bool,
 ) -> SummarizationResult:
-    """Summarize messages when they exceed a token limit and replace them with a summary message.
+    """Internal helper that drives both synchronous and asynchronous message summarization.
 
     This function processes the messages from oldest to newest: once the cumulative number of message tokens
     reaches `max_tokens_before_summary`, all messages within `max_tokens_before_summary` are summarized (excluding the system message, if any)
@@ -142,50 +144,6 @@ def summarize_messages(
                 - summary: text of the latest summary
                 - summarized_message_ids: set of message IDs that were previously summarized
                 - last_summarized_message_id: ID of the last message that was summarized
-
-    Example:
-        ```pycon
-        from langgraph.graph import StateGraph, START, MessagesState
-        from langgraph.checkpoint.memory import InMemorySaver
-        from langmem.short_term import summarize_messages, RunningSummary
-        from langchain_openai import ChatOpenAI
-
-        model = ChatOpenAI(model="gpt-4o")
-        summarization_model = model.bind(max_tokens=128)
-
-
-        class SummaryState(MessagesState):
-            summary: RunningSummary | None
-
-
-        def call_model(state):
-            summarization_result = summarize_messages(
-                state["messages"],
-                running_summary=state.get("summary"),
-                model=summarization_model,
-                max_tokens=384,
-                max_tokens_before_summary=512,
-                max_summary_tokens=128,
-            )
-            response = model.invoke(summarization_result.messages)
-            state_update = {"messages": [response]}
-            if summarization_result.running_summary:
-                state_update["summary"] = summarization_result.running_summary
-            return state_update
-
-
-        checkpointer = InMemorySaver()
-        workflow = StateGraph(SummaryState)
-        workflow.add_node(call_model)
-        workflow.add_edge(START, "call_model")
-        graph = workflow.compile(checkpointer=checkpointer)
-
-        config = {"configurable": {"thread_id": "1"}}
-        graph.invoke({"messages": "hi, my name is bob"}, config)
-        graph.invoke({"messages": "write a short poem about cats"}, config)
-        graph.invoke({"messages": "now do the same but for dogs"}, config)
-        graph.invoke({"messages": "what's my name?"}, config)
-        ```
     """
     if max_summary_tokens >= max_tokens:
         raise ValueError("`max_summary_tokens` must be less than `max_tokens`.")
@@ -337,7 +295,11 @@ def summarize_messages(
                 ),
             )
 
-        summary_response = model.invoke(summary_messages.messages)
+        if is_async:
+            summary_response = await model.ainvoke(summary_messages.messages)
+        else:
+            summary_response = model.invoke(summary_messages.messages)
+
         summarized_message_ids = summarized_message_ids | set(
             message.id for message in messages_to_summarize
         )
@@ -382,6 +344,140 @@ def summarize_messages(
                 else [existing_system_message] + messages
             ),
         )
+
+
+def summarize_messages(messages: list[AnyMessage], **kwargs) -> SummarizationResult:
+    """Summarize messages when they exceed a token limit and replace them with a summary message.
+
+    Wraps the internal `_run_summarization` helper in a blocking call. Delegates all parameters
+    (`running_summary`, `model`, `max_tokens`, etc.) via `kwargs` and forces `is_async=False`.
+
+    Args:
+        messages: The list of messages to process.
+        **kwargs: same keyword arguments as `_run_summarization`, except `is_async`.
+
+    Returns:
+        A SummarizationResult object containing the updated messages and a running summary.
+            - messages: list of updated messages ready to be input to the LLM
+            - running_summary: RunningSummary object
+                - summary: text of the latest summary
+                - summarized_message_ids: set of message IDs that were previously summarized
+                - last_summarized_message_id: ID of the last message that was summarized
+
+    Example:
+        ```pycon
+        from langgraph.graph import StateGraph, START, MessagesState
+        from langgraph.checkpoint.memory import InMemorySaver
+        from langmem.short_term import summarize_messages, RunningSummary
+        from langchain_openai import ChatOpenAI
+
+        model = ChatOpenAI(model="gpt-4o")
+        summarization_model = model.bind(max_tokens=128)
+
+
+        class SummaryState(MessagesState):
+            summary: RunningSummary | None
+
+
+        def call_model(state):
+            summarization_result = summarize_messages(
+                state["messages"],
+                running_summary=state.get("summary"),
+                model=summarization_model,
+                max_tokens=384,
+                max_tokens_before_summary=512,
+                max_summary_tokens=128,
+            )
+            response = model.invoke(summarization_result.messages)
+            state_update = {"messages": [response]}
+            if summarization_result.running_summary:
+                state_update["summary"] = summarization_result.running_summary
+            return state_update
+
+
+        checkpointer = InMemorySaver()
+        workflow = StateGraph(SummaryState)
+        workflow.add_node(call_model)
+        workflow.add_edge(START, "call_model")
+        graph = workflow.compile(checkpointer=checkpointer)
+
+        config = {"configurable": {"thread_id": "1"}}
+        graph.invoke({"messages": "hi, my name is bob"}, config)
+        graph.invoke({"messages": "write a short poem about cats"}, config)
+        graph.invoke({"messages": "now do the same but for dogs"}, config)
+        graph.invoke({"messages": "what's my name?"}, config)
+        ```
+    """
+    kwargs["is_async"] = False
+    return asyncio.run(_run_summarization(messages, **kwargs))
+
+
+async def asummarize_messages(
+    messages: list[AnyMessage], **kwargs
+) -> SummarizationResult:
+    """Asynchronously Summarize messages when they exceed a token limit and replace them with a summary message.
+
+    Wraps the internal `_run_summarization` helper in an async call. Delegates all parameters
+    (`running_summary`, `model`, `max_tokens`, etc.) via `kwargs` and forces `is_async=True`.
+
+    Args:
+        messages: The list of messages to process.
+        **kwargs: same keyword arguments as `_run_summarization`, except `is_async`.
+
+    Returns:
+        A SummarizationResult object containing the updated messages and a running summary.
+            - messages: list of updated messages ready to be input to the LLM
+            - running_summary: RunningSummary object
+                - summary: text of the latest summary
+                - summarized_message_ids: set of message IDs that were previously summarized
+                - last_summarized_message_id: ID of the last message that was summarized
+
+    Example:
+        ```pycon
+        from langgraph.graph import StateGraph, START, MessagesState
+        from langgraph.checkpoint.memory import InMemorySaver
+        from langmem.short_term import asummarize_messages, RunningSummary
+        from langchain_openai import ChatOpenAI
+
+        model = ChatOpenAI(model="gpt-4o")
+        summarization_model = model.bind(max_tokens=128)
+
+
+        class SummaryState(MessagesState):
+            summary: RunningSummary | None
+
+
+        async def call_model(state):
+            summarization_result = await asummarize_messages(
+                state["messages"],
+                running_summary=state.get("summary"),
+                model=summarization_model,
+                max_tokens=384,
+                max_tokens_before_summary=512,
+                max_summary_tokens=128,
+            )
+            response = await model.ainvoke(summarization_result.messages)
+            state_update = {"messages": [response]}
+            if summarization_result.running_summary:
+                state_update["summary"] = summarization_result.running_summary
+            return state_update
+
+
+        checkpointer = InMemorySaver()
+        workflow = StateGraph(SummaryState)
+        workflow.add_node(call_model)
+        workflow.add_edge(START, "call_model")
+        graph = workflow.compile(checkpointer=checkpointer)
+
+        config = {"configurable": {"thread_id": "1"}}
+        await graph.ainvoke({"messages": "hi, my name is bob"}, config)
+        await graph.ainvoke({"messages": "write a short poem about cats"}, config)
+        await graph.ainvoke({"messages": "now do the same but for dogs"}, config)
+        await graph.ainvoke({"messages": "what's my name?"}, config)
+        ```
+    """
+    kwargs["is_async"] = True
+    return await _run_summarization(messages, **kwargs)
 
 
 class SummarizationNode(RunnableCallable):
@@ -507,7 +603,7 @@ class SummarizationNode(RunnableCallable):
             graph.invoke({"messages": "what's my name?"}, config)
             ```
         """
-        super().__init__(self._func, name=name, trace=False)
+        super().__init__(func=self._func, afunc=self._afunc, name=name, trace=False)
         self.model = model
         self.max_tokens = max_tokens
         self.max_tokens_before_summary = max_tokens_before_summary
@@ -519,20 +615,46 @@ class SummarizationNode(RunnableCallable):
         self.input_messages_key = input_messages_key
         self.output_messages_key = output_messages_key
 
-    def _func(self, input: dict[str, Any] | BaseModel) -> dict[str, Any]:
-        if isinstance(input, dict):
-            messages = input.get(self.input_messages_key)
-            context = input.get("context", {})
-        elif isinstance(input, BaseModel):
-            messages = getattr(input, self.input_messages_key, None)
-            context = getattr(input, "context", {})
+    def _build_state_update(
+        self, summarization_result: SummarizationResult, context: dict
+    ) -> dict[str, Any]:
+        state_update: dict[str, Any] = {
+            self.output_messages_key: summarization_result.messages
+        }
+        if summarization_result.running_summary:
+            state_update["context"] = {
+                **context,
+                "running_summary": summarization_result.running_summary,
+            }
+            # If the input and output messages keys are the same, we need to remove the
+            # summarized messages from the resulting message list
+            if self.input_messages_key == self.output_messages_key:
+                state_update[self.output_messages_key] = [
+                    RemoveMessage(REMOVE_ALL_MESSAGES)
+                ] + state_update[self.output_messages_key]
+
+        return state_update
+
+    def _parse_input(
+        self, _input: dict[str, Any] | BaseModel
+    ) -> tuple[list[AnyMessage], dict]:
+        if isinstance(_input, dict):
+            messages = _input.get(self.input_messages_key)
+            context = _input.get("context", {})
+        elif isinstance(_input, BaseModel):
+            messages = getattr(_input, self.input_messages_key, None)
+            context = getattr(_input, "context", {})
         else:
-            raise ValueError(f"Invalid input type: {type(input)}")
+            raise ValueError(f"Invalid input type: {type(_input)}")
 
         if messages is None:
             raise ValueError(
                 f"Missing required field `{self.input_messages_key}` in the input."
             )
+        return messages, context
+
+    def _func(self, input: dict[str, Any] | BaseModel) -> dict[str, Any]:
+        messages, context = self._parse_input(input)
 
         summarization_result = summarize_messages(
             messages,
@@ -547,17 +669,22 @@ class SummarizationNode(RunnableCallable):
             final_prompt=self.final_prompt,
         )
 
-        state_update = {self.output_messages_key: summarization_result.messages}
-        if summarization_result.running_summary:
-            state_update["context"] = {
-                **context,
-                "running_summary": summarization_result.running_summary,
-            }
-            # If the input and output messages keys are the same, we need to remove the
-            # summarized messages from the resulting message list
-            if self.input_messages_key == self.output_messages_key:
-                state_update[self.output_messages_key] = [
-                    RemoveMessage(REMOVE_ALL_MESSAGES)
-                ] + state_update[self.output_messages_key]
+        return self._build_state_update(summarization_result, context)
 
-        return state_update
+    async def _afunc(self, input: dict[str, Any] | BaseModel) -> dict[str, Any]:
+        messages, context = self._parse_input(input)
+
+        summarization_result = await asummarize_messages(
+            messages,
+            running_summary=context.get("running_summary"),
+            model=self.model,
+            max_tokens=self.max_tokens,
+            max_tokens_before_summary=self.max_tokens_before_summary,
+            max_summary_tokens=self.max_summary_tokens,
+            token_counter=self.token_counter,
+            initial_summary_prompt=self.initial_summary_prompt,
+            existing_summary_prompt=self.existing_summary_prompt,
+            final_prompt=self.final_prompt,
+        )
+
+        return self._build_state_update(summarization_result, context)
