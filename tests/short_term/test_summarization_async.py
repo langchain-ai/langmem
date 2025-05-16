@@ -7,14 +7,16 @@ from langchain_core.messages import (
 )
 from langchain_core.messages.utils import count_tokens_approximately
 
-from langmem.short_term.summarization import summarize_messages, SummarizationNode
+from langmem.short_term.summarization import asummarize_messages, SummarizationNode
 from tests.short_term.utils import FakeChatModel
 
-def test_empty_input():
+pytestmark = pytest.mark.anyio
+
+async def test_empty_input():
     model = FakeChatModel(responses=[])
 
     # Test with empty message list
-    result = summarize_messages(
+    result = await asummarize_messages(
         [],
         running_summary=None,
         model=model,
@@ -29,7 +31,7 @@ def test_empty_input():
 
     # Test with only system message
     system_msg = SystemMessage(content="You are a helpful assistant.", id="sys")
-    result = summarize_messages(
+    result = await asummarize_messages(
         [system_msg],
         running_summary=None,
         model=model,
@@ -42,7 +44,7 @@ def test_empty_input():
     assert result.messages == [system_msg]
 
 
-def test_no_summarization_needed():
+async def test_no_summarization_needed():
     model = FakeChatModel(responses=[])
 
     messages = [
@@ -52,7 +54,7 @@ def test_no_summarization_needed():
     ]
 
     # Tokens are under the limit, so no summarization should occur
-    result = summarize_messages(
+    result = await asummarize_messages(
         messages,
         running_summary=None,
         model=model,
@@ -67,7 +69,7 @@ def test_no_summarization_needed():
     assert len(model.invoke_calls) == 0  # Model should not have been called
 
 
-def test_summarize_first_time():
+async def test_summarize_first_time():
     model = FakeChatModel(
         responses=[AIMessage(content="This is a summary of the conversation.")]
     )
@@ -89,7 +91,7 @@ def test_summarize_first_time():
 
     # Call the summarizer
     max_summary_tokens = 1
-    result = summarize_messages(
+    result = await asummarize_messages(
         messages,
         running_summary=None,
         model=model,
@@ -118,7 +120,7 @@ def test_summarize_first_time():
     )
 
     # Test subsequent invocation (no new summary needed)
-    result = summarize_messages(
+    result = await asummarize_messages(
         messages,
         running_summary=summary_value,
         model=model,
@@ -135,7 +137,7 @@ def test_summarize_first_time():
     assert result.messages[1:] == messages[-3:]
 
 
-def test_max_tokens_before_summary():
+async def test_max_tokens_before_summary():
     model = FakeChatModel(
         responses=[AIMessage(content="This is a summary of the conversation.")]
     )
@@ -157,7 +159,7 @@ def test_max_tokens_before_summary():
 
     # Call the summarizer
     max_summary_tokens = 1
-    result = summarize_messages(
+    result = await asummarize_messages(
         messages,
         running_summary=None,
         model=model,
@@ -187,7 +189,7 @@ def test_max_tokens_before_summary():
     )  # All messages except the latest
 
     # Test subsequent invocation (no new summary needed)
-    result = summarize_messages(
+    result = await asummarize_messages(
         messages,
         running_summary=summary_value,
         model=model,
@@ -205,7 +207,7 @@ def test_max_tokens_before_summary():
     assert result.messages[1:] == messages[-1:]
 
 
-def test_with_system_message():
+async def test_with_system_message():
     """Test summarization with a system message present."""
     model = FakeChatModel(
         responses=[AIMessage(content="Summary with system message present.")]
@@ -232,7 +234,7 @@ def test_with_system_message():
     max_tokens = 6
     # we're using len() as a token counter, so a summary is simply 1 "token"
     max_summary_tokens = 1
-    result = summarize_messages(
+    result = await asummarize_messages(
         messages,
         running_summary=None,
         model=model,
@@ -258,7 +260,7 @@ def test_with_system_message():
     assert result.messages[2:] == messages[-3:]
 
 
-def test_approximate_token_counter():
+async def test_approximate_token_counter():
     model = FakeChatModel(responses=[AIMessage(content="Summary with empty messages.")])
 
     # Create messages with some empty content
@@ -277,7 +279,7 @@ def test_approximate_token_counter():
     ]
 
     # Call the summarizer
-    result = summarize_messages(
+    result = await asummarize_messages(
         messages,
         running_summary=None,
         model=model,
@@ -292,7 +294,7 @@ def test_approximate_token_counter():
     assert result.messages[1:] == messages[-1:]
 
 
-def test_large_number_of_messages():
+async def test_large_number_of_messages():
     """Test summarization with a large number of messages."""
     model = FakeChatModel(responses=[AIMessage(content="Summary of many messages.")])
 
@@ -306,7 +308,7 @@ def test_large_number_of_messages():
     messages.append(HumanMessage(content="Final message", id=f"h{len(messages)}"))
 
     # Call the summarizer
-    result = summarize_messages(
+    result = await asummarize_messages(
         messages,
         running_summary=None,
         model=model,
@@ -327,7 +329,7 @@ def test_large_number_of_messages():
     assert len(model.invoke_calls) == 1
 
 
-def test_subsequent_summarization_with_new_messages():
+async def test_subsequent_summarization_with_new_messages():
     model = FakeChatModel(
         responses=[
             AIMessage(content="First summary of the conversation."),
@@ -351,7 +353,7 @@ def test_subsequent_summarization_with_new_messages():
     # First summarization
     max_tokens = 6
     max_summary_tokens = 1
-    result = summarize_messages(
+    result = await asummarize_messages(
         messages1,
         running_summary=None,
         model=model,
@@ -389,7 +391,7 @@ def test_subsequent_summarization_with_new_messages():
     messages2.extend(new_messages)
 
     # Second summarization
-    result2 = summarize_messages(
+    result2 = await asummarize_messages(
         messages2,
         running_summary=summary_value,
         model=model,
@@ -430,7 +432,7 @@ def test_subsequent_summarization_with_new_messages():
     assert len(updated_summary_value.summarized_message_ids) == len(messages2) - 3
 
 
-def test_subsequent_summarization_with_new_messages_approximate_token_counter():
+async def test_subsequent_summarization_with_new_messages_approximate_token_counter():
     model = FakeChatModel(
         responses=[
             AIMessage(content="First summary of the conversation."),
@@ -454,7 +456,7 @@ def test_subsequent_summarization_with_new_messages_approximate_token_counter():
     # First summarization
     max_tokens = 45
     max_summary_tokens = 15
-    result = summarize_messages(
+    result = await asummarize_messages(
         messages1,
         running_summary=None,
         model=model,
@@ -492,7 +494,7 @@ def test_subsequent_summarization_with_new_messages_approximate_token_counter():
     messages2.extend(new_messages)
 
     # Second summarization
-    result2 = summarize_messages(
+    result2 = await asummarize_messages(
         messages2,
         running_summary=summary_value,
         model=model,
@@ -533,7 +535,7 @@ def test_subsequent_summarization_with_new_messages_approximate_token_counter():
     assert len(updated_summary_value.summarized_message_ids) == len(messages2) - 3
 
 
-def test_last_ai_with_tool_calls():
+async def test_last_ai_with_tool_calls():
     model = FakeChatModel(responses=[AIMessage(content="Summary without tool calls.")])
 
     messages = [
@@ -555,7 +557,7 @@ def test_last_ai_with_tool_calls():
     ]
 
     # Call the summarizer
-    result = summarize_messages(
+    result = await asummarize_messages(
         messages,
         running_summary=None,
         model=model,
@@ -574,13 +576,13 @@ def test_last_ai_with_tool_calls():
     )
 
 
-def test_missing_message_ids():
+async def test_missing_message_ids():
     messages = [
         HumanMessage(content="Message 1", id="1"),
         AIMessage(content="Response"),  # Missing ID
     ]
     with pytest.raises(ValueError, match="Messages are required to have ID field"):
-        summarize_messages(
+        await asummarize_messages(
             messages,
             running_summary=None,
             model=FakeChatModel(responses=[]),
@@ -589,7 +591,7 @@ def test_missing_message_ids():
         )
 
 
-def test_duplicate_message_ids():
+async def test_duplicate_message_ids():
     model = FakeChatModel(responses=[AIMessage(content="Summary")])
 
     # First summarization
@@ -599,7 +601,7 @@ def test_duplicate_message_ids():
         HumanMessage(content="Message 2", id="3"),
     ]
 
-    result = summarize_messages(
+    result = await asummarize_messages(
         messages1,
         running_summary=None,
         model=model,
@@ -615,7 +617,7 @@ def test_duplicate_message_ids():
     ]
 
     with pytest.raises(ValueError, match="has already been summarized"):
-        summarize_messages(
+        await asummarize_messages(
             messages1 + messages2,
             running_summary=result.running_summary,
             model=model,
@@ -625,7 +627,7 @@ def test_duplicate_message_ids():
         )
 
 
-def test_summarization_updated_messages():
+async def test_summarization_updated_messages():
     # this is a variant of test_subsequent_summarization_with_new_messages
     # that passes the updated (ie., summarized) messages on the second turn
     model = FakeChatModel(
@@ -651,7 +653,7 @@ def test_summarization_updated_messages():
     # First summarization
     max_tokens = 6
     max_summary_tokens = 1
-    result = summarize_messages(
+    result = await asummarize_messages(
         messages1,
         running_summary=None,
         model=model,
@@ -690,7 +692,7 @@ def test_summarization_updated_messages():
     messages2.extend(new_messages)
 
     # Second summarization
-    result2 = summarize_messages(
+    result2 = await asummarize_messages(
         messages2,
         running_summary=summary_value,
         model=model,
@@ -731,7 +733,7 @@ def test_summarization_updated_messages():
     assert len(updated_summary_value.summarized_message_ids) == 12
 
 
-def test_summarization_node():
+async def test_summarization_node():
     model = FakeChatModel(
         responses=[AIMessage(content="This is a summary of the conversation.")]
     )
@@ -759,7 +761,7 @@ def test_summarization_node():
         max_tokens=6,
         max_summary_tokens=max_summary_tokens,
     )
-    result = summarization_node.invoke({"messages": messages})
+    result = await summarization_node.ainvoke({"messages": messages})
 
     # Check that model was called
     assert len(model.invoke_calls) == 1
@@ -781,7 +783,7 @@ def test_summarization_node():
     )  # All messages except the latest
 
     # Test subsequent invocation (no new summary needed)
-    result = summarization_node.invoke({"messages": messages, "context": {"running_summary": summary_value}})
+    result = await summarization_node.ainvoke({"messages": messages, "context": {"running_summary": summary_value}})
     assert len(result["summarized_messages"]) == 4
     assert result["summarized_messages"][0].type == "system"
     assert (
@@ -791,7 +793,7 @@ def test_summarization_node():
     assert result["summarized_messages"][1:] == messages[-3:]
 
 
-def test_summarization_node_same_key():
+async def test_summarization_node_same_key():
     # this is a variant of test_subsequent_summarization_with_new_messages
     # that passes the updated (ie., summarized) messages on the second turn
     model = FakeChatModel(
@@ -825,7 +827,7 @@ def test_summarization_node_same_key():
         input_messages_key="messages",
         output_messages_key="messages",
     )
-    result = summarization_node.invoke({"messages": messages1})
+    result = await summarization_node.ainvoke({"messages": messages1})
 
     # Verify the first summarization result
     assert result["messages"][0].type == "remove"
@@ -858,7 +860,7 @@ def test_summarization_node_same_key():
     messages2.extend(new_messages)
 
     # Second summarization
-    result2 = summarization_node.invoke({"messages": messages2, "context": {"running_summary": summary_value}})
+    result2 = await summarization_node.ainvoke({"messages": messages2, "context": {"running_summary": summary_value}})
 
     # Check that model was called twice
     assert len(model.invoke_calls) == 2
