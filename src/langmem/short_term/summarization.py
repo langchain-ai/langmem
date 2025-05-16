@@ -801,7 +801,9 @@ class SummarizationNode(RunnableCallable):
         self.input_messages_key = input_messages_key
         self.output_messages_key = output_messages_key
 
-    def _func(self, input: dict[str, Any] | BaseModel) -> dict[str, Any]:
+    def _parse_input(
+        self, input: dict[str, Any] | BaseModel
+    ) -> tuple[list[AnyMessage], dict[str, Any]]:
         if isinstance(input, dict):
             messages = input.get(self.input_messages_key)
             context = input.get("context", {})
@@ -815,7 +817,10 @@ class SummarizationNode(RunnableCallable):
             raise ValueError(
                 f"Missing required field `{self.input_messages_key}` in the input."
             )
+        return messages, context
 
+    def _func(self, input: dict[str, Any] | BaseModel) -> dict[str, Any]:
+        messages, context = self._parse_input(input)
         summarization_result = summarize_messages(
             messages,
             running_summary=context.get("running_summary"),
@@ -845,20 +850,7 @@ class SummarizationNode(RunnableCallable):
         return state_update
 
     async def _afunc(self, input: dict[str, Any] | BaseModel) -> dict[str, Any]:
-        if isinstance(input, dict):
-            messages = input.get(self.input_messages_key)
-            context = input.get("context", {})
-        elif isinstance(input, BaseModel):
-            messages = getattr(input, self.input_messages_key, None)
-            context = getattr(input, "context", {})
-        else:
-            raise ValueError(f"Invalid input type: {type(input)}")
-
-        if messages is None:
-            raise ValueError(
-                f"Missing required field `{self.input_messages_key}` in the input."
-            )
-
+        messages, context = self._parse_input(input)
         summarization_result = await asummarize_messages(
             messages,
             running_summary=context.get("running_summary"),
