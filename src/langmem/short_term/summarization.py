@@ -98,15 +98,6 @@ class PreprocessedMessages:
     existing_system_message: SystemMessage | None
     """Existing system message (excluded from summarization)."""
 
-    @property
-    def all_messages(self) -> list[AnyMessage]:
-        """Messages to summarize plus the existing system message if it exists."""
-        return (
-            [self.existing_system_message] + self.messages_to_summarize
-            if self.existing_system_message
-            else self.messages_to_summarize
-        )
-
 
 def _preprocess_messages(
     *,
