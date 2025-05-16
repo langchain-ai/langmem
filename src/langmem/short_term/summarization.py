@@ -810,6 +810,23 @@ class SummarizationNode(RunnableCallable):
             )
         return messages, context
 
+    def _prepare_state_update(
+        self, context: dict[str, Any], summarization_result: SummarizationResult
+    ) -> dict[str, Any]:
+        state_update = {self.output_messages_key: summarization_result.messages}
+        if summarization_result.running_summary:
+            state_update["context"] = {
+                **context,
+                "running_summary": summarization_result.running_summary,
+            }
+            # If the input and output messages keys are the same, we need to remove the
+            # summarized messages from the resulting message list
+            if self.input_messages_key == self.output_messages_key:
+                state_update[self.output_messages_key] = [
+                    RemoveMessage(REMOVE_ALL_MESSAGES)
+                ] + state_update[self.output_messages_key]
+        return state_update
+
     def _func(self, input: dict[str, Any] | BaseModel) -> dict[str, Any]:
         messages, context = self._parse_input(input)
         summarization_result = summarize_messages(
@@ -824,21 +841,7 @@ class SummarizationNode(RunnableCallable):
             existing_summary_prompt=self.existing_summary_prompt,
             final_prompt=self.final_prompt,
         )
-
-        state_update = {self.output_messages_key: summarization_result.messages}
-        if summarization_result.running_summary:
-            state_update["context"] = {
-                **context,
-                "running_summary": summarization_result.running_summary,
-            }
-            # If the input and output messages keys are the same, we need to remove the
-            # summarized messages from the resulting message list
-            if self.input_messages_key == self.output_messages_key:
-                state_update[self.output_messages_key] = [
-                    RemoveMessage(REMOVE_ALL_MESSAGES)
-                ] + state_update[self.output_messages_key]
-
-        return state_update
+        return self._prepare_state_update(context, summarization_result)
 
     async def _afunc(self, input: dict[str, Any] | BaseModel) -> dict[str, Any]:
         messages, context = self._parse_input(input)
@@ -854,18 +857,4 @@ class SummarizationNode(RunnableCallable):
             existing_summary_prompt=self.existing_summary_prompt,
             final_prompt=self.final_prompt,
         )
-
-        state_update = {self.output_messages_key: summarization_result.messages}
-        if summarization_result.running_summary:
-            state_update["context"] = {
-                **context,
-                "running_summary": summarization_result.running_summary,
-            }
-            # If the input and output messages keys are the same, we need to remove the
-            # summarized messages from the resulting message list
-            if self.input_messages_key == self.output_messages_key:
-                state_update[self.output_messages_key] = [
-                    RemoveMessage(REMOVE_ALL_MESSAGES)
-                ] + state_update[self.output_messages_key]
-
-        return state_update
+        return self._prepare_state_update(context, summarization_result)
