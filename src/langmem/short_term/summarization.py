@@ -1,6 +1,6 @@
+import warnings
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable, cast
-import warnings
 
 from langchain_core.language_models import LanguageModelLike
 from langchain_core.messages import (
