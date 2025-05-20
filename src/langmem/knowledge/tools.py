@@ -1,3 +1,4 @@
+import functools
 import logging
 import typing
 import uuid
@@ -7,6 +8,14 @@ from langgraph.store.base import BaseStore
 from langgraph.utils.config import get_store
 
 from langmem import errors, utils
+
+if typing.TYPE_CHECKING:
+    from langchain_core.tools.base import ArgsSchema
+
+try:
+    from pydantic import ConfigDict
+except ImportError:
+    ConfigDict = None
 
 logger = logging.getLogger(__name__)
 
@@ -342,7 +351,7 @@ def create_manage_memory_tool(
 Include the MEMORY ID when updating or deleting a MEMORY. Omit when creating a new MEMORY - it will be created for you.
 {instructions}"""
 
-    return StructuredTool.from_function(
+    return _ToolWithRequired.from_function(
         manage_memory, amanage_memory, name=name, description=description
     )
 
@@ -499,3 +508,23 @@ def _ensure_json_serializable(content: typing.Any) -> typing.Any:
             logger.error(e)
             return str(content)
     return content
+
+
+class _ToolWithRequired(StructuredTool):
+    @functools.cached_property
+    def tool_call_schema(self) -> "ArgsSchema":
+        tcs = super().tool_call_schema
+        try:
+            if tcs.model_config:
+                tcs.model_config["json_schema_extra"] = _ensure_schema_contains_required
+            elif ConfigDict is not None:
+                tcs.model_config = ConfigDict(
+                    json_schema_extra=_ensure_schema_contains_required
+                )
+        except Exception:
+            pass
+        return tcs
+
+
+def _ensure_schema_contains_required(schema: dict) -> None:
+    schema.setdefault("required", [])
