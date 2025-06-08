@@ -265,7 +265,7 @@ See [Storage System](../concepts/conceptual_guide.md#storage-system) for namespa
 
 ## Using a Memory Manager Agent
 
-The technique above tries to manage memory, including insertions, deletions, and deletions, in a single LLM call. If there is a lot of new information, this may be complicated for the LLM to multi-task. Alternatively, you could create an agent, similar to that in the [quick start](../hot_path_quickstart.md), which you prompt to manage memory over multiple LLM calls. You can still serparaate this agent from your user-facing agent, but it can give your LLM extra time to process new information and complex updates.
+The technique above tries to manage memory, including insertions, deletions, and deletions, in a single LLM call. If there is a lot of new information, this may be complicated for the LLM to multi-task. Alternatively, you could create an agent, similar to that in the [quick start](../hot_path_quickstart.md), which you prompt to manage memory over multiple LLM calls. You can still serparate this agent from your user-facing agent, but it can give your LLM extra time to process new information and complex updates.
 
 ```python
 from langchain.chat_models import init_chat_model
