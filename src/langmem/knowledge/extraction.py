@@ -78,7 +78,7 @@ class Memory(BaseModel):
 
     content: str = Field(
         description="The memory as a well-written, standalone episode/fact/note/preference/etc."
-        " Refer to the user's instructions for more information the prefered memory organization."
+        " Refer to the user's instructions for more information the preferred memory organization."
     )
 
 
@@ -703,7 +703,7 @@ def create_memory_searcher(
             Defaults to ("memories", "{langgraph_user_id}").
 
     ???+ note "Namespace Configuration"
-        If the namespae has template variables "{variable_name}", they will be configured at
+        If the namespace has template variables "{variable_name}", they will be configured at
         runtime through the `config` parameter:
         ```python
         # Example: Search user's memories

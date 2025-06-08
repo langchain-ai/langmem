@@ -35,7 +35,7 @@ Memory in LLM applications can reflect some of the structure of human memory, wi
 
 Collections are what most people think of when they imagine agent long-term memory. In this type, memories are stored as individual documents or records. For each new conversation, the memory system can decide to insert new memories to the store. 
 
-Using a collection-type memory adds some complexity to the process of updating your memory state. The system must reconcile new information with previous beliefes, either  _deleting_/_invalidating_ or _updating_/_consolidating_ existing memories. If the system over-extracts, this could lead to reduced precision of memories when your agent needs to search the store. If it under-extracts, this could lead to low recall. LangMem uses a memory enrichment process that strives to balance memory creation and consolidation, while letting you, the developer, customize the instructions to further shift the strength of each.
+Using a collection-type memory adds some complexity to the process of updating your memory state. The system must reconcile new information with previous beliefs, either _deleting_/_invalidating_ or _updating_/_consolidating_ existing memories. If the system over-extracts, this could lead to reduced precision of memories when your agent needs to search the store. If it under-extracts, this could lead to low recall. LangMem uses a memory enrichment process that strives to balance memory creation and consolidation, while letting you, the developer, customize the instructions to further shift the strength of each.
 
 Finally, memory relevance is more than just semantic similarity. Recall should combine similarity with "importance" of the memory, as well as the memory's "strength", which is a function of how recently/frequently it was used.
 
@@ -309,9 +309,9 @@ You may want your agent to save memories "in the hot path." This active memory f
 
 Check out the ["hot path" quickstart](../hot_path_quickstart.md) for an example of how to use this technique.
 
-### Subconcious Formation
+### Subconscious Formation
 
-"Subconcious" memory formation refers to the technique of prompting an LLM to reflect on a conversation after it occurs (or after it has been inactive for some period), finding patterns and extracting insights without slowing down the immediate interaction or adding complexity to the agent's tool choice decisions. This approach is perfect for ensuring higher recall of exracted information.
+"Subconscious" memory formation refers to the technique of prompting an LLM to reflect on a conversation after it occurs (or after it has been inactive for some period), finding patterns and extracting insights without slowing down the immediate interaction or adding complexity to the agent's tool choice decisions. This approach is perfect for ensuring higher recall of extracted information.
 
 Check out the ["background" quickstart](../background_quickstart.md) for an example of how to use this technique.
 
@@ -330,7 +330,7 @@ These core functions do not depend on any particular database or storage system.
 
 ### 2. Stateful Integration
 
-The next layer up depends on LangGraph's long-term memory store. These components use the core API above to transform memories that existing in the store and upsert/delete them as needed when new conversation information comesin:
+The next layer up depends on LangGraph's long-term memory store. These components use the core API above to transform memories that exist in the store and upsert/delete them as needed when new conversation information comesin:
 
 - [**Store Managers**](../reference/memory.md#langmem.create_memory_store_manager): Automatically persist extracted memories
 - [**Memory Management Tools**](../reference/tools.md#langmem.create_manage_memory_tool): Give agents direct access to memory operations
@@ -349,7 +349,7 @@ When using LangMem's stateful operators or platform services, the storage system
 
 ### Memory Namespaces {#memory-namespaces}
 
-Memories are organized into namespaces that allows for natural segmentation of data:
+Memories are organized into namespaces that allow for natural segmentation of data:
 
 - **Multi-Level Namespaces**: Group memories by organization, user, application, or any other hierarchical structure
 - **Contextual Keys**: Identify memories uniquely within their namespace

@@ -266,7 +266,7 @@ print(store.search(("memories",)))
 
 ## How It Works
 
-The examples above shows how to integrate LangMem's memory tools into a custom agent that:
+The examples above show how to integrate LangMem's memory tools into a custom agent that:
 
 1. Uses Anthropic or OpenAI to call an LLM
 2. Implements a basic REACT loop for tool usage

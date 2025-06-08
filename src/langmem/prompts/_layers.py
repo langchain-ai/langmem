@@ -77,7 +77,7 @@ class MemoryLayer(Runnable):
                 organize memory.
             namespace: Optional[tuple[str, ...]]: Scope for this memory layer (e.g. user_id, org_id)
             update_instructions: Optional[str]: System-prompt instructions for when and how to update the contents of this memory.
-            schemas: Union[type[str], list[type[BaseModel]], list[dict]]: Schema for validating memories
+            schemas: Union[type[str], list[type[BaseModel]], list[dict]]: Schema for validating memory kind
             kind: Literal["single", "multi"]: Type of memory storage/lookup - "single" or "multi". Default is 'multi'.
             limit: int = 1000: If "multi" kind, the maximum number of memories to return
         """

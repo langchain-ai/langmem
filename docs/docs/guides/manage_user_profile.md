@@ -4,7 +4,7 @@ title: How to Manage User Profiles
 
 # How to Manage User Profiles
 
-User profiles help your LLM maintain consistent, up-to-date information about users across conversations. Unlike [semantic memory collections](./extract_semantic_memories.md) which track evolving knowledge, profiles focus on maintaing a concise, structured representation of the user (or the agent itself).
+User profiles help your LLM maintain consistent, up-to-date information about users across conversations. Unlike [semantic memory collections](./extract_semantic_memories.md) which track evolving knowledge, profiles focus on maintaining a concise, structured representation of the user (or the agent itself).
 
 - Personal context (name, language, timezone)
 - Communication preferences (formality, detail level, expertise)
