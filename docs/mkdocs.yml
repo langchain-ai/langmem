@@ -94,8 +94,8 @@ plugins:
 nav:
   - Introduction: index.md
   - Quickstart 🏎️:
-    - 🚀 Hot Path Quickstart: hot_path_quickstart.md
     - 🧠 Background Quickstart: background_quickstart.md
+    - 🚀 Hot Path Quickstart: hot_path_quickstart.md
   - Concepts 💡:
     - Core Concepts: concepts/conceptual_guide.md
   - How-to Guides 🔨:
