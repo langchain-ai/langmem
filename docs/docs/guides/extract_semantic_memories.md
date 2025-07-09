@@ -183,10 +183,10 @@ Namespaces let you organize memories by user, team, or domain:
 
 The `{user_id}` placeholder is replaced at runtime:
 
-```python
+```python {skip}
 # Extract memories for User A
-manager.invoke(
-    messages=[{"role": "user", "content": "I prefer dark mode"}],
+manager.invokse(
+    {"messages": [{"role": "user", "content": "I prefer dark mode"}]},
     config={"configurable": {"user_id": "user-a"}}  # (1)!
 )
 ```

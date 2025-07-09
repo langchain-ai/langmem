@@ -3,6 +3,7 @@
 import ast
 import importlib
 import logging
+import re
 import textwrap
 from pathlib import Path
 from typing import Any, Dict, List
@@ -16,6 +17,36 @@ logging.basicConfig(
     level=logging.DEBUG, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+SETUP_START_RE = re.compile(r"^#\s*```python\s+setup")
+SETUP_END_RE = re.compile(r"^#\s*```")
+
+
+def get_file_setup(source: str) -> List[str]:
+    """Extract a file-level setup code block hidden in comments.
+
+    The block must start with a line like `# ```python setup` and end with
+    a line starting with `# ````.  Lines inside are de-commented and dedented.
+    Returns a list with a single block (for API symmetry) or an empty list.
+    """
+    in_block = False
+    buf: list[str] = []
+    for line in source.splitlines():
+        if not in_block and SETUP_START_RE.match(line):
+            in_block = True
+            continue
+        if in_block and SETUP_END_RE.match(line):
+            break
+        if in_block:
+            # strip leading "#" and optional space
+            stripped = line.lstrip()
+            if stripped.startswith("#"):
+                stripped = stripped[1:]
+                if stripped.startswith(" "):
+                    stripped = stripped[1:]
+            buf.append(stripped)
+    code = textwrap.dedent("\n".join(buf)).strip()
+    return [code] if code else []
 
 
 def extract_code_blocks(docstring: str) -> List[str]:
@@ -37,7 +68,7 @@ def extract_code_blocks(docstring: str) -> List[str]:
             if not in_code_block:
                 # Start of a code block
                 lang = stripped[3:].strip()
-                if lang.endswith("skip"):
+                if "skip" in lang:
                     in_code_block = "other"
                 elif lang.startswith(("python", "py")) or lang == "":
                     in_code_block = True
@@ -48,6 +79,8 @@ def extract_code_blocks(docstring: str) -> List[str]:
                 in_code_block = False
             else:
                 in_code_block = False
+                if "skip" in stripped:
+                    continue
                 if current_block:
                     blocks.append("\n".join(current_block))
                 current_block = []
@@ -139,6 +172,7 @@ def extract_markdown_examples(file_path: Path) -> List[pytest.param]:
             pytest.param(
                 None,  # No module
                 str(file_path),  # Use file path as function name
+                [],  # no setup
                 python_blocks,  # All Python blocks together
                 id=f"{file_path.name}::examples",
             )
@@ -171,6 +205,13 @@ def collect_docstring_tests():
                 continue
             test_cases.extend(extract_markdown_examples(md_file))
     for py_file in py_files:
+        # Extract file-level setup (once per file)
+        try:
+            source_text = py_file.read_text(encoding="utf-8")
+        except Exception as read_err:
+            logger.warning(f"Could not read {py_file}: {read_err}")
+            source_text = ""
+        setup_blocks = get_file_setup(source_text)
         logger.debug(f"Processing file: {py_file}")
         funcs = get_module_functions(str(py_file))
         logger.debug(f"Found {len(funcs)} functions with examples in {py_file}")
@@ -182,6 +223,7 @@ def collect_docstring_tests():
                 pytest.param(
                     details["module"],
                     func_name,
+                    setup_blocks,
                     details["examples"],  # Pass all examples together
                     id=test_id,
                 )
@@ -190,10 +232,15 @@ def collect_docstring_tests():
     return test_cases
 
 
-@pytest.mark.parametrize("module_name,func_name,code_blocks", collect_docstring_tests())
+@pytest.mark.parametrize(
+    "module_name,func_name,setup_blocks,code_blocks", collect_docstring_tests()
+)
 @pytest.mark.langsmith
 async def test_docstring_example(
-    module_name: str | None, func_name: str, code_blocks: List[str]
+    module_name: str | None,
+    func_name: str,
+    setup_blocks: List[str],
+    code_blocks: List[str],
 ):
     """Execute all docstring code blocks from a function in sequence, maintaining state."""
     if module_name is None:
@@ -223,6 +270,10 @@ async def test_docstring_example(
             func_name.split(".")[-1]: obj,
         }
     with ls.tracing_context(project_name="langmem_docstrings"):
+        # run setup blocks once per file
+        for setup_block in setup_blocks:
+            exec(setup_block, namespace, namespace)
+
         for i, code_block in enumerate(code_blocks):
             try:
                 if "await " in code_block:

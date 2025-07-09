@@ -30,6 +30,16 @@ from langmem.knowledge.tools import create_search_memory_tool
 
 ## LangGraph Tools
 
+# ```python setup
+# from langmem import create_memory_store_manager
+# from langgraph.store.memory import InMemoryStore
+# manager = create_memory_store_manager(
+#     "anthropic:claude-3-5-sonnet-latest",
+#     namespace=("chat",),
+#     store=InMemoryStore(),
+# )
+# ```  # end-setup
+
 
 class Item(BaseItem):
     value: BaseModel | dict[str, typing.Any]
@@ -263,7 +273,7 @@ class MemoryManager(Runnable[MemoryState, list[ExtractedMemory]]):
                     enable_deletes=self.enable_deletes,
                     existing_schema_policy=False,
                 )
-            response = await extractor.ainvoke(payload)
+            response = await extractor.ainvoke(payload, config=config)
             is_done = False
             step_results = {}
             for r, rmeta in zip(response["responses"], response["response_metadata"]):
@@ -366,7 +376,7 @@ class MemoryManager(Runnable[MemoryState, list[ExtractedMemory]]):
                     enable_deletes=self.enable_deletes,
                     existing_schema_policy=False,
                 )
-            response = extractor.invoke(payload)
+            response = extractor.invoke(payload, config=config)
             is_done = False
             step_results: dict[str, BaseModel] = {}
             for r, rmeta in zip(response["responses"], response["response_metadata"]):
@@ -1006,7 +1016,7 @@ class MemoryStoreManager(Runnable[MemoryStoreManagerInput, list[dict]]):
                 f"Use parallel tool calling to search for distinct memories relevant to this conversation.:\n\n"
                 f"<convo>\n{convo}\n</convo>."
             )
-            query_req = await self.query_gen.ainvoke(query_text)
+            query_req = await self.query_gen.ainvoke(query_text, config=config)
             search_results_lists = await asyncio.gather(
                 *[
                     store.asearch(
@@ -1063,7 +1073,8 @@ class MemoryStoreManager(Runnable[MemoryStoreManagerInput, list[dict]]):
                 "messages": input["messages"],
                 "existing": store_based,
                 "max_steps": input.get("max_steps"),
-            }
+            },
+            config=config,
         )
         store_based, ephemeral, removed = self._apply_manager_output(
             enriched, store_based, store_map, ephemeral
@@ -1080,7 +1091,7 @@ class MemoryStoreManager(Runnable[MemoryStoreManagerInput, list[dict]]):
                 "messages": phase_messages,
                 "existing": store_based + ephemeral,
             }
-            phase_enriched = await phase_manager.ainvoke(phase_input)
+            phase_enriched = await phase_manager.ainvoke(phase_input, config=config)
             store_based, ephemeral, removed = self._apply_manager_output(
                 phase_enriched, store_based, store_map, ephemeral
             )
@@ -1140,7 +1151,7 @@ class MemoryStoreManager(Runnable[MemoryStoreManagerInput, list[dict]]):
                     f"Use parallel tool calling to search for distinct memories relevant to this conversation.:\n\n"
                     f"<convo>\n{convo}\n</convo>."
                 )
-                query_req = self.query_gen.invoke(query_text)
+                query_req = self.query_gen.invoke(query_text, config=config)
                 search_results_futs = [
                     executor.submit(
                         store.search,
@@ -1205,7 +1216,8 @@ class MemoryStoreManager(Runnable[MemoryStoreManagerInput, list[dict]]):
                 "messages": input["messages"],
                 "existing": store_based,
                 "max_steps": input.get("max_steps"),
-            }
+            },
+            config=config,
         )
         store_based, ephemeral, removed = self._apply_manager_output(
             enriched, store_based, store_map, ephemeral
@@ -1221,7 +1233,7 @@ class MemoryStoreManager(Runnable[MemoryStoreManagerInput, list[dict]]):
                 "messages": phase_messages,
                 "existing": store_based + ephemeral,
             }
-            phase_enriched = phase_manager.invoke(phase_input)
+            phase_enriched = phase_manager.invoke(phase_input, config=config)
             store_based, ephemeral, removed = self._apply_manager_output(
                 phase_enriched, store_based, store_map, ephemeral
             )
