@@ -244,7 +244,7 @@ async def test_docstring_example(
 ):
     """Execute all docstring code blocks from a function in sequence, maintaining state."""
     if module_name is None:
-        # Don't need to import anythign but we still share a context bcs reasons
+        # Don't need to import anything but we still share a context bcs reasons
         namespace = {
             "__name__": f"docstring_example_{func_name.replace('.', '_')}",
             "__file__": "README.md",
