@@ -57,11 +57,11 @@ agent = create_react_agent(
 )
 ```
 
-1. The memory tools work in any LangGraph app. Here we use [`create_react_agent`](https://langchain-ai.github.io/langgraph/reference/prebuilt/#langgraph.prebuilt.create_react_agent) to run an LLM with tools, but you can add these tools to your existing agents or build [custom memory systems](concepts/conceptual_guide.md#functional-core) without agents.
+1. The memory tools work in any LangGraph app. Here we use [`create_react_agent`](https://langchain-ai.github.io/langgraph/reference/prebuilt/#langgraph.prebuilt.create_react_agent) to run an LLM with tools, but you can add these tools to your existing agents or build [custom memory systems](docs/docs/concepts/conceptual_guide.md#functional-core) without agents.
 
 2. [`InMemoryStore`](https://langchain-ai.github.io/langgraph/reference/store/#langgraph.store.memory.InMemoryStore) keeps memories in process memory—they'll be lost on restart. For production, use the [AsyncPostgresStore](https://langchain-ai.github.io/langgraph/reference/store/#langgraph.store.postgres.AsyncPostgresStore) or a similar DB-backed store to persist memories across server restarts.
 
-3. The memory tools ([`create_manage_memory_tool`](reference/tools.md#langmem.create_manage_memory_tool) and [`create_search_memory_tool`](reference/tools.md#langmem.create_search_memory_tool)) let you control what gets stored. The agent extracts key information from conversations, maintains memory consistency, and knows when to search past interactions. See [Memory Tools](guides/memory_tools.md) for configuration options.
+3. The memory tools ([`create_manage_memory_tool`](docs/docs/reference/tools.md#langmem.create_manage_memory_tool) and [`create_search_memory_tool`](docs/docs/reference/tools.md#langmem.create_search_memory_tool)) let you control what gets stored. The agent extracts key information from conversations, maintains memory consistency, and knows when to search past interactions. See [Memory Tools](docs/docs/guides/memory_tools.md) for configuration options.
 
 Then use the agent:
 
@@ -79,9 +79,9 @@ print(response["messages"][-1].content)
 # Output: "You've told me that you prefer dark mode."
 ```
 
-1. The agent gets to decide what and when to store the memory. No special commands needed—just chat normally and the agent uses [`create_manage_memory_tool`](reference/tools.md#langmem.create_manage_memory_tool) to store relevant details.
+1. The agent gets to decide what and when to store the memory. No special commands needed—just chat normally and the agent uses [`create_manage_memory_tool`](docs/docs/reference/tools.md#langmem.create_manage_memory_tool) to store relevant details.
 
-2. The agent maintains context between chats. When you ask about previous interactions, the LLM can invoke [`create_search_memory_tool`](reference/tools.md#langmem.create_search_memory_tool) to search for memories with similar content. See [Memory Tools](guides/memory_tools.md) to customize memory storage and retrieval, and see the [hot path quickstart](https://langchain-ai.github.io/langmem/hot_path_quickstart) for a more complete example on how to include memories without the agent having to explicitly search.
+2. The agent maintains context between chats. When you ask about previous interactions, the LLM can invoke [`create_search_memory_tool`](docs/docs/reference/tools.md#langmem.create_search_memory_tool) to search for memories with similar content. See [Memory Tools](docs/docs/guides/memory_tools.md) to customize memory storage and retrieval, and see the [hot path quickstart](https://langchain-ai.github.io/langmem/hot_path_quickstart) for a more complete example on how to include memories without the agent having to explicitly search.
 
 The agent can now store important information from conversations, search its memory when relevant, and persist knowledge across conversations.
 
