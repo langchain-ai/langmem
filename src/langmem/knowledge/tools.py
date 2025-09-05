@@ -554,6 +554,17 @@ def _ensure_schema_contains_required(schema: dict) -> None:
 
 
 def _ensure_schema_strict_compatible(schema: dict) -> None:
+    """Modify JSON schema to be compatible with OpenAI's Structured Outputs (strict: true).
+    
+    OpenAI's strict mode requires:
+    1. All properties must be listed in the 'required' array
+    2. 'additionalProperties' must be set to false
+    
+    See: https://platform.openai.com/docs/guides/structured-outputs/supported-schemas
+    
+    Args:
+        schema: The JSON schema dictionary to modify in-place
+    """
     props = schema.get("properties", {})
     # All fields must be `required`
     schema["required"] = list(props.keys())
