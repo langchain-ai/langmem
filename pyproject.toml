@@ -1,6 +1,6 @@
 [project]
 name = "langmem"
-version = "0.0.29"
+version = "0.0.30"
 description = "Prebuilt utilities for memory management and retrieval."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -10,7 +10,7 @@ dependencies = [
     "langchain-core>=0.3.46",
     "langchain-openai>=0.3.1",
     "trustcall>=0.0.39",
-    "langgraph>=0.6.0,<0.7.0",
+    "langgraph>=0.6.0,<2",
     "langchain-anthropic>=0.3.3",
     "langsmith>=0.3.8",
     "langgraph-checkpoint>=2.0.12",
@@ -33,6 +33,7 @@ dev = [
     "pytest-watch>=4.2.0",
     "pytest-xdist>=3.6.1",
     "langgraph-prebuilt>=0.1.1",
+    "ruff>=0.12.12",
 ]
 docs = [
     "markdown-callouts>=0.4.0",
@@ -47,7 +48,6 @@ docs = [
     "mkdocs-rss-plugin>=1.17.1",
     "mkdocstrings>=0.27.0",
     "mkdocstrings-python>=1.13.0",
-    "ruff>=0.9.4",
     "nbformat>=5.10.4",
     "nbconvert>=7.16.6",
 ]
