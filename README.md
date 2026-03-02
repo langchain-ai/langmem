@@ -85,6 +85,9 @@ print(response["messages"][-1].content)
 
 The agent can now store important information from conversations, search its memory when relevant, and persist knowledge across conversations.
 
+> [!TIP]
+> For developing, debugging, and deploying AI agents and LLM applications, see [LangSmith](https://docs.langchain.com/langsmith/home).
+
 ## Next Steps
 
 For more examples and detailed documentation:
