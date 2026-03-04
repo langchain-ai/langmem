@@ -449,9 +449,14 @@ def create_search_memory_tool(
             limit=limit,
             offset=offset,
         )
+        normalized = []
+        for m in memories:
+            d = m.dict()
+            d["value"] = _normalize_memory_value(d.get("value", {}))
+            normalized.append(d)
         if response_format == "content_and_artifact":
-            return utils.dumps([m.dict() for m in memories]), memories
-        return utils.dumps([m.dict() for m in memories])
+            return utils.dumps(normalized), memories
+        return utils.dumps(normalized)
 
     def search_memory(
         query: str,
@@ -469,9 +474,14 @@ def create_search_memory_tool(
             limit=limit,
             offset=offset,
         )
+        normalized = []
+        for m in memories:
+            d = m.dict()
+            d["value"] = _normalize_memory_value(d.get("value", {}))
+            normalized.append(d)
         if response_format == "content_and_artifact":
-            return utils.dumps([m.dict() for m in memories]), memories
-        return utils.dumps([m.dict() for m in memories])
+            return utils.dumps(normalized), memories
+        return utils.dumps(normalized)
 
     description = """Search your long-term memories for information relevant to your current context. {instructions}""".format(
         instructions=instructions
@@ -484,6 +494,19 @@ def create_search_memory_tool(
         description=description,
         response_format=response_format,
     )
+
+
+
+def _normalize_memory_value(value):
+    """Normalize memory value for consistent presentation to the LLM.
+
+    Unwraps the kind/content envelope written by MemoryStoreManager so that
+    search results have a consistent format regardless of which code path
+    wrote the memory.
+    """
+    if isinstance(value, dict) and "kind" in value and "content" in value:
+        return value["content"]
+    return value
 
 
 def _get_store(initial_store: BaseStore | None = None) -> BaseStore:
