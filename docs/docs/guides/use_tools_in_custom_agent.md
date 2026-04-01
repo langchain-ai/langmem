@@ -275,7 +275,7 @@ The examples above show how to integrate LangMem's memory tools into a custom ag
 
 The memory tools provide two key capabilities:
 
-- [`create_manage_memory_tool`](../reference/tools.md#langmem.create-manage-memory-tool): Lets the agent create, update, and delete memories
-- [`create_search_memory_tool`](../reference/tools.md#langmem.create-search-memory-tool): Lets the agent search through previously stored memories
+- [`create_manage_memory_tool`](../reference/tools.md#langmem.create_manage_memory_tool): Lets the agent create, update, and delete memories
+- [`create_search_memory_tool`](../reference/tools.md#langmem.create_search_memory_tool): Lets the agent search through previously stored memories
 
 The agent can use these tools to maintain context and remember important information across conversations.
