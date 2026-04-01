@@ -61,9 +61,8 @@ plugins:
       custom_templates: templates
       handlers:
         python:
-          import:
+          inventories:
             - https://docs.python.org/3/objects.inv
-            - https://python.langchain.com/api_reference/objects.inv
           options:
             preload_modules: 
               - langchain
@@ -76,8 +75,7 @@ plugins:
             show_source: false
             summary: true
             inherited_members: false
-            selection:
-              docstring_style: google
+            docstring_style: google
             docstring_section_style: list
             show_root_toc_entry: false
             show_signature: true
