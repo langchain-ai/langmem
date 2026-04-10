@@ -198,20 +198,30 @@ def _preprocess_messages(
     else:
         messages_to_summarize = messages[total_summarized_messages : idx + 1]
 
-    # If the last message is an AI message with tool calls,
-    # include subsequent corresponding tool messages in the summary as well,
-    # to avoid issues w/ the LLM provider
-    if (
-        messages_to_summarize
-        and isinstance(messages_to_summarize[-1], AIMessage)
-        and (tool_calls := messages_to_summarize[-1].tool_calls)
-    ):
-        # Add any matching tool messages from our dictionary
-        for tool_call in tool_calls:
-            if tool_call["id"] in tool_call_id_to_tool_message:
-                tool_message = tool_call_id_to_tool_message[tool_call["id"]]
-                n_tokens_to_summarize += token_counter([tool_message])
-                messages_to_summarize.append(tool_message)
+    # For any AI message with tool calls in the summarization range,
+    # ensure all corresponding tool messages are included as well,
+    # to avoid issues w/ the LLM provider (e.g. Bedrock ValidationException,
+    # OpenAI BadRequestError). The previous check only handled the case where
+    # the last message was an AIMessage, but the cutoff can also land on a
+    # ToolMessage mid-sequence, leaving subsequent tool results excluded.
+    if messages_to_summarize:
+        existing_tool_result_ids = {
+            msg.tool_call_id
+            for msg in messages_to_summarize
+            if isinstance(msg, ToolMessage) and msg.tool_call_id
+        }
+        for msg in list(messages_to_summarize):
+            if isinstance(msg, AIMessage) and msg.tool_calls:
+                for tool_call in msg.tool_calls:
+                    tc_id = tool_call["id"]
+                    if (
+                        tc_id not in existing_tool_result_ids
+                        and tc_id in tool_call_id_to_tool_message
+                    ):
+                        tool_message = tool_call_id_to_tool_message[tc_id]
+                        n_tokens_to_summarize += token_counter([tool_message])
+                        messages_to_summarize.append(tool_message)
+                        existing_tool_result_ids.add(tc_id)
 
     return PreprocessedMessages(
         messages_to_summarize=messages_to_summarize,
