@@ -198,20 +198,23 @@ def _preprocess_messages(
     else:
         messages_to_summarize = messages[total_summarized_messages : idx + 1]
 
-    # If the last message is an AI message with tool calls,
-    # include subsequent corresponding tool messages in the summary as well,
-    # to avoid issues w/ the LLM provider
-    if (
-        messages_to_summarize
-        and isinstance(messages_to_summarize[-1], AIMessage)
-        and (tool_calls := messages_to_summarize[-1].tool_calls)
-    ):
-        # Add any matching tool messages from our dictionary
-        for tool_call in tool_calls:
-            if tool_call["id"] in tool_call_id_to_tool_message:
-                tool_message = tool_call_id_to_tool_message[tool_call["id"]]
-                n_tokens_to_summarize += token_counter([tool_message])
-                messages_to_summarize.append(tool_message)
+    # For all AI message with tool calls, include subsequent corresponding
+    # tool messages in the summary as well, to avoid issues w/ the LLM provider
+    tool_call_ids = []
+    seen_tool_call_ids = set()
+    for msg in messages_to_summarize:
+        if isinstance(msg, AIMessage) and msg.tool_calls:
+            for tool_call in msg.tool_calls:
+                tool_call_ids.append(tool_call["id"])
+        elif isinstance(msg, ToolMessage) and msg.tool_call_id:
+            seen_tool_call_ids.add(msg.tool_call_id)
+
+    for tool_call_id in tool_call_ids:
+        if tool_call_id not in seen_tool_call_ids:
+            # Add matching Tool Messages that are not seen from our dictionary
+            tool_message = tool_call_id_to_tool_message[tool_call_id]
+            n_tokens_to_summarize += token_counter([tool_message])
+            messages_to_summarize.append(tool_message)
 
     return PreprocessedMessages(
         messages_to_summarize=messages_to_summarize,
