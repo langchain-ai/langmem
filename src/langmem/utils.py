@@ -7,6 +7,8 @@ from langchain_core.messages import AnyMessage
 from langchain_core.messages.utils import merge_message_runs
 from langchain_core.runnables import RunnableConfig
 from langgraph.utils.config import get_config
+from langgraph._internal._constants import CONFIG_KEY_RUNTIME
+from langgraph.constants import CONF
 from pydantic import BaseModel, Field, model_validator
 
 from langmem import errors
@@ -76,7 +78,9 @@ class NamespaceTemplate:
         except RuntimeError:
             config = {}
         if self.vars:
-            configurable = config["configurable"] if "configurable" in config else {}
+            configurable = config.setdefault(CONF, {})
+            if (runtime := configurable.get(CONFIG_KEY_RUNTIME)) is not None:
+                configurable.update(runtime.context)
             try:
                 return tuple(
                     configurable[self.vars[ix]] if ix in self.vars else ns  # type: ignore
