@@ -228,3 +228,27 @@ graph.invoke({"messages": "what's new on broadway?"}, config)
 ```
 
 1. Instead of returning to LLM after executing tools, we first return to the summarization node.
+### Behavior with Running Summaries in Tool-Loop Scenarios
+
+When using `SummarizationNode` in a graph with tool-calling loops (e.g., `summarize_node → call_model → tools → summarize_node`), be aware of the following behavior:
+
+The running summary is only updated when unsummarized messages exceed the `max_tokens_before_summary` threshold. In tight-token scenarios where tool call + response messages are short, subsequent passes through the summarization node may not trigger a new summarization, leaving the previous summary unchanged.
+
+This means:
+
+1. The first summarization pass produces a `running_summary` correctly
+2. On subsequent loop iterations, if the new messages (since the last summary) don't reach `max_tokens_before_summary`, no re-summarization occurs
+3. The previous summary persists without incorporating the new context from tool interactions
+
+To ensure more frequent summary updates in tool-loop scenarios, set `max_tokens_before_summary` to a lower value:
+
+```python
+summarization_node = SummarizationNode(
+    model=model,
+    max_tokens=4096,
+    max_tokens_before_summary=1024,  # Lower threshold for more frequent updates
+    max_summary_tokens=512,
+)
+```
+
+See [#118](https://github.com/langchain-ai/langmem/issues/118) for a detailed reproduction case.
