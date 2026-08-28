@@ -261,7 +261,8 @@ class MemoryManager(Runnable[MemoryState, list[ExtractedMemory]]):
         # initial payload uses the full prepared_existing list
         payload = {"messages": prepared_messages, "existing": prepared_existing}
         # Use a dict to record the latest update for each memory id.
-        results: dict[str, BaseModel] = {}
+        results: dict[str, BaseModel | dict[str, typing.Any]] = {}
+        modified_ids: set[str] = set()
 
         for i in range(max_steps):
             if i == 1:
@@ -287,6 +288,7 @@ class MemoryManager(Runnable[MemoryState, list[ExtractedMemory]]):
                 )
                 step_results[mem_id] = r
             results.update(step_results)
+            modified_ids.update(step_results)
 
             for mem_id, _, mem in prepared_existing:
                 if mem_id not in results:
@@ -328,8 +330,14 @@ class MemoryManager(Runnable[MemoryState, list[ExtractedMemory]]):
                 # For the next iteration payload, drop all removal objects.
                 payload = {
                     "messages": prepared_messages,
-                    "existing": self._filter_response(
-                        list(results.items()), external_ids, exclude_removals=True
+                    "existing": self._prepare_next_existing(
+                        self._filter_response(
+                            list(results.items()),
+                            external_ids,
+                            exclude_removals=True,
+                        ),
+                        prepared_existing,
+                        modified_ids,
                     ),
                 }
 
@@ -364,7 +372,8 @@ class MemoryManager(Runnable[MemoryState, list[ExtractedMemory]]):
         )
         payload = {"messages": prepared_messages, "existing": prepared_existing}
         # Use a dict to record the latest update for each memory id.
-        results: dict[str, BaseModel] = {}
+        results: dict[str, BaseModel | dict[str, typing.Any]] = {}
+        modified_ids: set[str] = set()
 
         for i in range(max_steps):
             if i == 1:
@@ -392,6 +401,7 @@ class MemoryManager(Runnable[MemoryState, list[ExtractedMemory]]):
                 )
                 step_results[mem_id] = r
             results.update(step_results)
+            modified_ids.update(step_results)
 
             # Ensure any memory from the initial payload that hasn't been updated is retained.
             for mem_id, _, mem in prepared_existing:
@@ -435,8 +445,14 @@ class MemoryManager(Runnable[MemoryState, list[ExtractedMemory]]):
                 )
                 payload = {
                     "messages": prepared_messages,
-                    "existing": self._filter_response(
-                        list(results.items()), external_ids, exclude_removals=True
+                    "existing": self._prepare_next_existing(
+                        self._filter_response(
+                            list(results.items()),
+                            external_ids,
+                            exclude_removals=True,
+                        ),
+                        prepared_existing,
+                        modified_ids,
                     ),
                 }
 
@@ -505,6 +521,24 @@ class MemoryManager(Runnable[MemoryState, list[ExtractedMemory]]):
                 )
                 result.append((id_, kind, value))
         return result
+
+    @staticmethod
+    def _prepare_next_existing(
+        memories: list[ExtractedMemory],
+        prepared_existing: list[tuple[str, str, typing.Any]],
+        modified_ids: set[str],
+    ) -> list[ExtractedMemory | tuple[str, str, typing.Any]]:
+        """Preserve schema names for unchanged externally loaded memories."""
+        original_by_id = {
+            memory_id: (memory_id, schema_name, content)
+            for memory_id, schema_name, content in prepared_existing
+        }
+        return [
+            original_by_id[memory.id]
+            if memory.id in original_by_id and memory.id not in modified_ids
+            else memory
+            for memory in memories
+        ]
 
     @staticmethod
     def _filter_response(
