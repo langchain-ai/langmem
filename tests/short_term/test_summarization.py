@@ -7,8 +7,14 @@ from langchain_core.messages import (
 )
 from langchain_core.messages.utils import count_tokens_approximately
 
-from langmem.short_term.summarization import summarize_messages, SummarizationNode
+from langmem.short_term.summarization import (
+    PreprocessedMessages,
+    SummarizationNode,
+    _adjust_messages_before_summarization,
+    summarize_messages,
+)
 from tests.short_term.utils import FakeChatModel
+
 
 def test_empty_input():
     model = FakeChatModel(responses=[])
@@ -67,6 +73,25 @@ def test_no_summarization_needed():
     assert len(model.invoke_calls) == 0  # Model should not have been called
 
 
+def test_trim_warning_mentions_missing_human_message():
+    messages = [AIMessage(content="Message without a preceding human message", id="1")]
+    preprocessed_messages = PreprocessedMessages(
+        messages_to_summarize=messages,
+        n_tokens_to_summarize=10,
+        max_tokens_to_summarize=1,
+        total_summarized_messages=0,
+        existing_system_message=None,
+    )
+
+    with pytest.warns(RuntimeWarning, match="HumanMessage"):
+        adjusted_messages = _adjust_messages_before_summarization(
+            preprocessed_messages,
+            token_counter=len,
+        )
+
+    assert adjusted_messages == messages
+
+
 def test_summarize_first_time():
     model = FakeChatModel(
         responses=[AIMessage(content="This is a summary of the conversation.")]
@@ -113,9 +138,7 @@ def test_summarize_first_time():
     summary_value = result.running_summary
     assert summary_value is not None
     assert summary_value.summary == "This is a summary of the conversation."
-    assert summary_value.summarized_message_ids == set(
-        msg.id for msg in messages[:6]
-    )
+    assert summary_value.summarized_message_ids == set(msg.id for msg in messages[:6])
 
     # Test subsequent invocation (no new summary needed)
     result = summarize_messages(
@@ -781,7 +804,9 @@ def test_summarization_node():
     )  # All messages except the latest
 
     # Test subsequent invocation (no new summary needed)
-    result = summarization_node.invoke({"messages": messages, "context": {"running_summary": summary_value}})
+    result = summarization_node.invoke(
+        {"messages": messages, "context": {"running_summary": summary_value}}
+    )
     assert len(result["summarized_messages"]) == 4
     assert result["summarized_messages"][0].type == "system"
     assert (
@@ -858,7 +883,9 @@ def test_summarization_node_same_key():
     messages2.extend(new_messages)
 
     # Second summarization
-    result2 = summarization_node.invoke({"messages": messages2, "context": {"running_summary": summary_value}})
+    result2 = summarization_node.invoke(
+        {"messages": messages2, "context": {"running_summary": summary_value}}
+    )
 
     # Check that model was called twice
     assert len(model.invoke_calls) == 2
@@ -877,7 +904,7 @@ def test_summarization_node_same_key():
         "Message 4",
         "Response 4",
         "Message 5",
-        "Response 5"
+        "Response 5",
     ]
 
     # Verify the structure of the final result

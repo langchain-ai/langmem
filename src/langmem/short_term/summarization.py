@@ -245,7 +245,9 @@ def _adjust_messages_before_summarization(
         if not adjusted_messages_to_summarize:
             warnings.warn(
                 "Failed to trim messages to fit within max_tokens limit before summarization - "
-                "falling back to the original message list. "
+                "falling back to the original message list. This can happen when the trimmed "
+                "message window does not contain a HumanMessage, which is required by the "
+                "summarization prompt. Consider increasing max_tokens or max_tokens_before_summary. "
                 "This may lead to exceeding the context window of the summarization LLM.",
                 RuntimeWarning,
             )
