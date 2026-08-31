@@ -65,8 +65,12 @@ class MessagesState(TypedDict):
     messages: list[AnyMessage]
 
 
+MemoryContent = BaseModel | dict[str, typing.Any]
+ExistingMemory = tuple[str, MemoryContent] | tuple[str, str, MemoryContent]
+
+
 class MemoryState(MessagesState):
-    existing: typing.NotRequired[list[tuple[str, BaseModel]]]
+    existing: typing.NotRequired[list[str] | list[ExistingMemory]]
     max_steps: int  # Default of 1
 
 
@@ -77,7 +81,7 @@ class SummarizeThread(BaseModel):
 
 class ExtractedMemory(typing.NamedTuple):
     id: str
-    content: BaseModel
+    content: MemoryContent
 
 
 S = typing.TypeVar("S", bound=type)
@@ -495,11 +499,7 @@ class MemoryManager(Runnable[MemoryState, list[ExtractedMemory]]):
 
     def _prepare_existing(
         self,
-        existing: typing.Optional[
-            typing.Union[
-                list[str], list[tuple[str, BaseModel]], list[tuple[str, str, dict]]
-            ]
-        ],
+        existing: typing.Optional[list[str] | list[ExistingMemory]],
     ) -> list[tuple[str, str, typing.Any]]:
         if existing is None:
             return []
