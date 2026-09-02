@@ -12,6 +12,7 @@ from langchain_core.messages import (
     ToolMessage,
 )
 from langchain_core.messages.utils import count_tokens_approximately, trim_messages
+from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts.chat import ChatPromptTemplate, ChatPromptValue
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langgraph.utils.runnable import RunnableCallable
@@ -480,7 +481,7 @@ def summarize_messages(
             message.id for message in preprocessed_messages.messages_to_summarize
         )
         running_summary = RunningSummary(
-            summary=summary_response.content,
+            summary=StrOutputParser().invoke(summary_response),
             summarized_message_ids=summarized_message_ids,
             last_summarized_message_id=preprocessed_messages.messages_to_summarize[
                 -1
@@ -641,7 +642,7 @@ async def asummarize_messages(
             message.id for message in preprocessed_messages.messages_to_summarize
         )
         running_summary = RunningSummary(
-            summary=summary_response.content,
+            summary=StrOutputParser().invoke(summary_response),
             summarized_message_ids=summarized_message_ids,
             last_summarized_message_id=preprocessed_messages.messages_to_summarize[
                 -1
