@@ -1,6 +1,6 @@
 import warnings
 from dataclasses import dataclass
-from typing import Any, Callable, Iterable, cast
+from typing import Any, Callable, Iterable, Optional, cast
 
 from langchain_core.language_models import LanguageModelLike
 from langchain_core.messages import (
@@ -11,6 +11,7 @@ from langchain_core.messages import (
     SystemMessage,
     ToolMessage,
 )
+from langchain_core.messages.ai import UsageMetadata
 from langchain_core.messages.utils import count_tokens_approximately, trim_messages
 from langchain_core.prompts.chat import ChatPromptTemplate, ChatPromptValue
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
@@ -64,6 +65,9 @@ class RunningSummary:
 
     last_summarized_message_id: str | None
     """The ID of the last message that was summarized."""
+
+    usage_metadata: Optional[UsageMetadata]
+    """Usage metadata of the summarization LLM call."""
 
 
 @dataclass
@@ -485,6 +489,7 @@ def summarize_messages(
             last_summarized_message_id=preprocessed_messages.messages_to_summarize[
                 -1
             ].id,
+            usage_metadata=summary_response.usage_metadata if hasattr(summary_response, "usage_metadata") else None,
         )
 
     return _prepare_summarization_result(
@@ -646,6 +651,7 @@ async def asummarize_messages(
             last_summarized_message_id=preprocessed_messages.messages_to_summarize[
                 -1
             ].id,
+            usage_metadata=summary_response.usage_metadata if hasattr(summary_response, "usage_metadata") else None,
         )
 
     return _prepare_summarization_result(
