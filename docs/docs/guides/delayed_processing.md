@@ -36,18 +36,19 @@ store = InMemoryStore(
     }
 )
 
+
 @entrypoint(store=store)
 def chat(message: str):
     response = llm.invoke(message)
     # Format conversation for memory processing
     # Must follow OpenAI's message format
     to_process = {"messages": [{"role": "user", "content": message}] + [response]}
-    
+
     # Wait 30 minutes before processing
     # If new messages arrive before then:
     # 1. Cancel pending processing task
     # 2. Reschedule with new messages included
-    delay = 0.5 # In practice would choose longer (30-60 min)
+    delay = 0.5  # In practice would choose longer (30-60 min)
     # depending on app context.
     executor.submit(to_process, after_seconds=delay)
     return response.content
@@ -55,7 +56,12 @@ def chat(message: str):
 
 1. The [`create_memory_store_manager`](../reference/memory.md#langmem.create_memory_store_manager) creates a Runnable that extracts memories from conversations. It processes messages in OpenAI's format:
    ```python
-   {"messages": [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]}
+   {
+       "messages": [
+           {"role": "user", "content": "..."},
+           {"role": "assistant", "content": "..."},
+       ]
+   }
    ```
 
 2. The [`ReflectionExecutor`](../reference/utils.md#langmem.ReflectionExecutor) handles background processing of memories. For each conversation thread:
@@ -71,8 +77,8 @@ def chat(message: str):
 
         ```python
         ReflectionExecutor(
-            "my_memory_manager", 
-            ("memories",), 
+            "my_memory_manager",
+            ("memories",),
             url="http://localhost:2024",
         )
         ```

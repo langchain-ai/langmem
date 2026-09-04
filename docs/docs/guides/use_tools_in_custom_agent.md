@@ -100,11 +100,11 @@ def run_agent(tools: List[Any], user_input: str, max_steps: int = 5) -> str:
 
 # Set up memory store and tools
 store = InMemoryStore(
-            index={
-                "dims": 1536,
-                "embed": "openai:text-embedding-3-small",
-            }
-        )  # (1)!
+    index={
+        "dims": 1536,
+        "embed": "openai:text-embedding-3-small",
+    }
+)  # (1)!
 memory_tools = [
     create_manage_memory_tool(namespace="memories", store=store),
     create_search_memory_tool(namespace="memories", store=store),
@@ -224,11 +224,11 @@ def run_agent(tools: List[Any], user_input: str, max_steps: int = 5) -> str:
 
 # Set up memory store and tools
 store = InMemoryStore(
-            index={
-                "dims": 1536,
-                "embed": "openai:text-embedding-3-small",
-            }
-        )
+    index={
+        "dims": 1536,
+        "embed": "openai:text-embedding-3-small",
+    }
+)
 memory_tools = [
     create_manage_memory_tool(namespace="memories", store=store),
     create_search_memory_tool(namespace="memories", store=store),
@@ -261,7 +261,6 @@ print(store.search(("memories",)))
 #         score=None,
 #     ),
 # ]
-
 ```
 
 ## How It Works

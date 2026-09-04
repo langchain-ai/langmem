@@ -22,9 +22,11 @@ model = ChatOpenAI(model="gpt-4o")
 # highlight-next-line
 summarization_model = model.bind(max_tokens=128)  # (1)!
 
+
 # We will keep track of our running summary in the graph state
 class SummaryState(MessagesState):
     summary: RunningSummary | None
+
 
 # Define the node that will be calling the LLM
 def call_model(state: SummaryState) -> SummaryState:
@@ -36,10 +38,10 @@ def call_model(state: SummaryState) -> SummaryState:
         running_summary=state.get("summary"),  # (3)!
         # highlight-next-line
         token_counter=model.get_num_tokens_from_messages,
-        model=summarization_model, 
+        model=summarization_model,
         max_tokens=256,  # (4)!
         max_tokens_before_summary=256,  # (5)!
-        max_summary_tokens=128
+        max_summary_tokens=128,
     )
     response = model.invoke(summarization_result.messages)
     state_update = {"messages": [response]}
@@ -109,6 +111,7 @@ class LLMInputState(TypedDict):  # (2)!
     summarized_messages: list[AnyMessage]
     context: dict[str, Any]
 
+
 # highlight-next-line
 summarization_node = SummarizationNode(  # (3)!
     token_counter=model.get_num_tokens_from_messages,
@@ -118,11 +121,13 @@ summarization_node = SummarizationNode(  # (3)!
     max_summary_tokens=128,
 )
 
+
 # IMPORTANT: we're passing a private input state here to isolate the summarization
 # highlight-next-line
 def call_model(state: LLMInputState):  # (4)!
     response = model.invoke(state["summarized_messages"])
     return {"messages": [response]}
+
 
 checkpointer = InMemorySaver()
 builder = StateGraph(State)
@@ -165,8 +170,10 @@ from langgraph.prebuilt import ToolNode
 from langgraph.checkpoint.memory import InMemorySaver
 from langmem.short_term import SummarizationNode, RunningSummary
 
+
 class State(MessagesState):
     context: dict[str, Any]
+
 
 def search(query: str):
     """Search the web."""
@@ -176,6 +183,7 @@ def search(query: str):
         return "Hamilton is always on!"
     else:
         raise "Not enough information"
+
 
 tools = [search]
 
@@ -190,13 +198,16 @@ summarization_node = SummarizationNode(
     max_summary_tokens=128,
 )
 
+
 class LLMInputState(TypedDict):
     summarized_messages: list[AnyMessage]
     context: dict[str, Any]
 
+
 def call_model(state: LLMInputState):
     response = model.bind_tools(tools).invoke(state["summarized_messages"])
     return {"messages": [response]}
+
 
 # Define a router that determines whether to execute tools or exit
 def should_continue(state: MessagesState):
@@ -206,6 +217,7 @@ def should_continue(state: MessagesState):
         return END
     else:
         return "tools"
+
 
 checkpointer = InMemorySaver()
 builder = StateGraph(State)

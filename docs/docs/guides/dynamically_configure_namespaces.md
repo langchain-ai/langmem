@@ -19,7 +19,7 @@ app = create_react_agent("anthropic:claude-3-5-sonnet-latest", tools=[tool])
 app.invoke(
     {"messages": [{"role": "user", "content": "I like dolphins"}]},
     # highlight-next-line
-    config={"configurable": {"user_id": "user-123"}}
+    config={"configurable": {"user_id": "user-123"}},
 )  # Stores in ("memories", "user-123")
 ```
 
@@ -32,38 +32,36 @@ Organize memories by user, organization, or feature:
 
 ```python
 # Organization-level
-tool = create_manage_memory_tool(
-    namespace=("memories", "{org_id}")
-)
+tool = create_manage_memory_tool(namespace=("memories", "{org_id}"))
 app = create_react_agent("anthropic:claude-3-5-sonnet-latest", tools=[tool])
 app.invoke(
-    {"messages": [{"role": "user", "content": "I'm questioning the new company health plan.."}]},
-    config={"configurable": {"org_id": "acme"}}
+    {
+        "messages": [
+            {"role": "user", "content": "I'm questioning the new company health plan.."}
+        ]
+    },
+    config={"configurable": {"org_id": "acme"}},
 )
 
 # User within organization
-tool = create_manage_memory_tool(
-    namespace=("memories", "{org_id}", "{user_id}")
-)
+tool = create_manage_memory_tool(namespace=("memories", "{org_id}", "{user_id}"))
 # If you wanted to, you could let the agent
 # search over all users within an organization
-tool = create_search_memory_tool(
-    namespace=("memories", "{org_id}")
-)
+tool = create_search_memory_tool(namespace=("memories", "{org_id}"))
 app = create_react_agent("anthropic:claude-3-5-sonnet-latest", tools=[tool])
 app.invoke(
     {"messages": [{"role": "user", "content": "What's our policy on dogs at work?"}]},
-    config={"configurable": {"org_id": "acme", "user_id": "alice"}}
+    config={"configurable": {"org_id": "acme", "user_id": "alice"}},
 )
 
-# You could also organize memories by type or category if you prefer 
+# You could also organize memories by type or category if you prefer
 tool = create_manage_memory_tool(
     namespace=("agent_smith", "memories", "{user_id}", "preferences")
 )
 app = create_react_agent("anthropic:claude-3-5-sonnet-latest", tools=[tool])
 app.invoke(
     {"messages": [{"role": "user", "content": "I like dolphins"}]},
-    config={"configurable": {"user_id": "alice"}}
+    config={"configurable": {"user_id": "alice"}},
 )
 ```
 

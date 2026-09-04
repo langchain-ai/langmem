@@ -36,7 +36,7 @@ Here's a complete example showing how to create an agent with memory that persis
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent
 from langgraph.store.memory import InMemoryStore
-from langgraph.utils.config import get_store 
+from langgraph.utils.config import get_store
 from langmem import (
     # Lets agent create, update, and delete memories (1)
     create_manage_memory_tool,
@@ -46,7 +46,7 @@ from langmem import (
 def prompt(state):
     """Prepare the messages for the LLM."""
     # Get store from configured contextvar; (5)
-    store = get_store() # Same as that provided to `create_react_agent`
+    store = get_store()  # Same as that provided to `create_react_agent`
     memories = store.search(
         # Search within the same namespace as the one
         # we've configured for the agent
@@ -64,17 +64,17 @@ def prompt(state):
 
 
 store = InMemoryStore(
-    index={ # Store extracted memories (4)
+    index={  # Store extracted memories (4)
         "dims": 1536,
         "embed": "openai:text-embedding-3-small",
     }
-) 
-checkpointer = MemorySaver() # Checkpoint graph state (2)
+)
+checkpointer = MemorySaver()  # Checkpoint graph state (2)
 
-agent = create_react_agent( 
+agent = create_react_agent(
     "anthropic:claude-3-5-sonnet-latest",
     prompt=prompt,
-    tools=[ # Add memory tools (3)
+    tools=[  # Add memory tools (3)
         # The agent can call "manage_memory" to
         # create, update, and delete memories by ID
         # Namespaces add scope to memories. To
@@ -85,7 +85,7 @@ agent = create_react_agent(
     store=store,
     # And the graph "state" will be checkpointed after each node
     # completes executing for tracking the chat history and durable execution
-    checkpointer=checkpointer, 
+    checkpointer=checkpointer,
 )
 ```
 
@@ -131,22 +131,14 @@ config = {"configurable": {"thread_id": "thread-a"}}
 # Use the agent. The agent hasn't saved any memories,
 # so it doesn't know about us
 response = agent.invoke(
-    {
-        "messages": [
-            {"role": "user", "content": "Know which display mode I prefer?"}
-        ]
-    },
+    {"messages": [{"role": "user", "content": "Know which display mode I prefer?"}]},
     config=config,
 )
 print(response["messages"][-1].content)
 # Output: "I don't seem to have any stored memories about your display mode preferences..."
 
 agent.invoke(
-    {
-        "messages": [
-            {"role": "user", "content": "dark. Remember that."}
-        ]
-    },
+    {"messages": [{"role": "user", "content": "dark. Remember that."}]},
     # We will continue the conversation (thread-a) by using the config with
     # the same thread_id
     config=config,
@@ -158,7 +150,14 @@ new_config = {"configurable": {"thread_id": "thread-b"}}
 # The agent will only be able to recall
 # whatever it explicitly saved using the manage_memories tool
 response = agent.invoke(
-    {"messages": [{"role": "user", "content": "Hey there. Do you remember me? What are my preferences?"}]},
+    {
+        "messages": [
+            {
+                "role": "user",
+                "content": "Hey there. Do you remember me? What are my preferences?",
+            }
+        ]
+    },
     # highlight-next-line
     config=new_config,
 )

@@ -11,20 +11,23 @@ Need to extract multiple related facts from conversations? Here's how to use Lan
 Extract semantic memories:
 
 ```python
-from langmem import create_memory_manager # (1)!
+from langmem import create_memory_manager  # (1)!
 from pydantic import BaseModel
 
-class Triple(BaseModel): # (2)!
+
+class Triple(BaseModel):  # (2)!
     """Store all new facts, preferences, and relationships as triples."""
+
     subject: str
     predicate: str
     object: str
     context: str | None = None
 
+
 # Configure extraction
-manager = create_memory_manager(  
+manager = create_memory_manager(
     "anthropic:claude-3-5-sonnet-latest",
-    schemas=[Triple], 
+    schemas=[Triple],
     instructions="Extract user preferences and any other useful information",
     enable_inserts=True,
     enable_deletes=True,
@@ -48,13 +51,13 @@ manager = create_memory_manager(
         "subject": "user",
         "predicate": "response",
         "object": "yes",
-        "context": "When asked about attending team meeting"
+        "context": "When asked about attending team meeting",
     }
     {
         "subject": "user",
         "predicate": "response",
         "object": "no",
-        "context": "When asked if they were batman"
+        "context": "When asked if they were batman",
     }
     ```
     It's often a good idea to either schematize memories to encourage certain fields to be stored consistently, or at least to include instructions so the LLM
@@ -65,7 +68,10 @@ After the first short interaction, the system has extracted some semantic triple
 ```python
 # First conversation - extract triples
 conversation1 = [
-    {"role": "user", "content": "Alice manages the ML team and mentors Bob, who is also on the team."}
+    {
+        "role": "user",
+        "content": "Alice manages the ML team and mentors Bob, who is also on the team.",
+    }
 ]
 memories = manager.invoke({"messages": conversation1})
 print("After first conversation:")
@@ -99,9 +105,7 @@ existing = [m for m in update if isinstance(m.content, Triple)]
 The third conversation overwrites even more memories.
 ```python
 # Delete triples about an entity
-conversation3 = [
-    {"role": "user", "content": "Alice left the company."}
-]
+conversation3 = [{"role": "user", "content": "Alice left the company."}]
 final = manager.invoke({"messages": conversation3, "existing": existing})
 print("After third conversation:")
 for m in final:
@@ -187,7 +191,7 @@ The `{user_id}` placeholder is replaced at runtime:
 # Extract memories for User A
 manager.invokse(
     {"messages": [{"role": "user", "content": "I prefer dark mode"}]},
-    config={"configurable": {"user_id": "user-a"}}  # (1)!
+    config={"configurable": {"user_id": "user-a"}},  # (1)!
 )
 ```
 
@@ -196,7 +200,7 @@ manager.invokse(
 
 ```python
 # Define app with store context
-@entrypoint(store=store) # (1)!
+@entrypoint(store=store)  # (1)!
 def app(messages: list):
     response = my_llm.invoke(
         [
@@ -204,12 +208,12 @@ def app(messages: list):
                 "role": "system",
                 "content": "You are a helpful assistant.",
             },
-            *messages
+            *messages,
         ]
     )
 
     # Extract and store triples (Uses store from @entrypoint context)
-    manager.invoke({"messages": messages}) 
+    manager.invoke({"messages": messages})
     return response
 ```
 
@@ -257,7 +261,6 @@ for item in store.search(("chat", "user123")):
 # ('chat', 'user123', 'triples') {'kind': 'Triple', 'content': {'subject': 'Bob', 'predicate': 'leads', 'object': 'ML_team', 'context': None}}
 # ('chat', 'user123', 'triples') {'kind': 'Triple', 'content': {'subject': 'Bob', 'predicate': 'leads', 'object': 'NLP_project', 'context': None}}
 # ('chat', 'user123', 'triples') {'kind': 'Triple', 'content': {'subject': 'Alice', 'predicate': 'employment_status', 'object': 'left_company', 'context': None}}
-
 ```
 
 

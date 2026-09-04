@@ -22,7 +22,7 @@ store = InMemoryStore(
         "dims": 1536,
         "embed": "openai:text-embedding-3-small",
     }
-) # (1)!
+)  # (1)!
 ```
 
 1. For production deployments, use a persistent store like [`AsyncPostgresStore`](https://langchain-ai.github.io/langgraph/reference/store/#langgraph.store.postgres.AsyncPostgresStore). `InMemoryStore` works fine for development but doesn't persist data between restarts.
@@ -46,13 +46,13 @@ agent = create_react_agent(
     # Example 1: Store and search User A's memories
     response_a = agent.invoke(
         {"messages": [{"role": "user", "content": "Remember my favorite color is blue"}]},
-        config={"configurable": {"user_id": "user-a"}}
+        config={"configurable": {"user_id": "user-a"}},
     )  # Both tools use namespace ("memories", "user-a")
-    
+
     # Example 2: Store and search User B's memories
     response_b = agent.invoke(
         {"messages": [{"role": "user", "content": "Remember I prefer dark mode"}]},
-        config={"configurable": {"user_id": "user-b"}}
+        config={"configurable": {"user_id": "user-b"}},
     )  # Both tools use namespace ("memories", "user-b")
     ```
     
@@ -60,13 +60,13 @@ agent = create_react_agent(
     
     ```python
     # Personal memories
-    namespace=("memories", "user-123")
-    
+    namespace = ("memories", "user-123")
+
     # Shared team knowledge
-    namespace=("memories", "team-product")
-    
+    namespace = ("memories", "team-product")
+
     # Project-specific memories
-    namespace=("memories", "project-x")
+    namespace = ("memories", "project-x")
     ```
 ```python
 # Use the agent
@@ -89,9 +89,8 @@ agent_a_tools = [
     # Write to agent-specific namespace
     create_manage_memory_tool(namespace=("memories", "team_a", "agent_a")),
     # Read from shared team namespace
-    create_search_memory_tool(namespace=("memories", "team_a"))
+    create_search_memory_tool(namespace=("memories", "team_a")),
 ]
-
 
 
 # Agents with different prompts sharing read access
@@ -99,19 +98,19 @@ agent_a = create_react_agent(
     "anthropic:claude-3-5-sonnet-latest",
     tools=agent_a_tools,
     store=store,
-    prompt="You are a research assistant"
+    prompt="You are a research assistant",
 )
 
 # Create tools for agent B with different write space
 agent_b_tools = [
     create_manage_memory_tool(namespace=("memories", "team_a", "agent_b")),
-    create_search_memory_tool(namespace=("memories", "team_a"))
+    create_search_memory_tool(namespace=("memories", "team_a")),
 ]
 agent_b = create_react_agent(
     "anthropic:claude-3-5-sonnet-latest",
     tools=agent_b_tools,
     store=store,
-    prompt="You are a report writer."
+    prompt="You are a report writer.",
 )
 
 agent_b.invoke({"messages": [{"role": "user", "content": "Hi"}]})
@@ -123,14 +122,12 @@ agent_b.invoke({"messages": [{"role": "user", "content": "Hi"}]})
 The store is shared within a given deployment. This lets you do things like create namespaced memories to share data between agents in a team.
 
 ```python
-
 agent_a_tools = [
     # Write to agent-specific namespace
     create_manage_memory_tool(namespace=("memories", "team_a", "agent_a")),
     # Read from shared team namespace
-    create_search_memory_tool(namespace=("memories", "team_a"))
+    create_search_memory_tool(namespace=("memories", "team_a")),
 ]
-
 
 
 # Agents with different prompts sharing read access
@@ -138,19 +135,19 @@ agent_a = create_react_agent(
     "anthropic:claude-3-5-sonnet-latest",
     tools=agent_a_tools,
     store=store,
-    prompt="You are a research assistant"
+    prompt="You are a research assistant",
 )
 
 # Create tools for agent B with different write space
 agent_b_tools = [
     create_manage_memory_tool(namespace=("memories", "team_a", "agent_b")),
-    create_search_memory_tool(namespace=("memories", "team_a"))
+    create_search_memory_tool(namespace=("memories", "team_a")),
 ]
 agent_b = create_react_agent(
     "anthropic:claude-3-5-sonnet-latest",
     tools=agent_b_tools,
     store=store,
-    prompt="You are a report writer."
+    prompt="You are a report writer.",
 )
 
 agent_b.invoke({"messages": [{"role": "user", "content": "Hi"}]})
