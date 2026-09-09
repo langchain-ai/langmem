@@ -34,6 +34,7 @@ class Episode(BaseModel):  # (1)!
         description="Outcome and retrospective. What did you do well? What could you do better next time? I ...",
     )
 
+
 manager = create_memory_manager(
     "anthropic:claude-3-5-sonnet-latest",
     schemas=[Episode],  # (2)!
@@ -75,7 +76,6 @@ print(episodes[0])
 #         result="The explanation was highly successful, evidenced by the student's immediate comprehension (\"Oh that makes sense!\") and their ability to make the cognitive leap to understanding binary search trees' ordering property. For future explanations, I should continue using familiar analogies while being prepared to build upon them for more complex concepts. The family tree analogy proved particularly effective for explaining hierarchical structures.",
 #     ),
 # )
-
 ```
 
 ## With storage
@@ -124,12 +124,12 @@ def app(messages: list):
         for i, item in enumerate(similar, start=1):
             episode = item.value["content"]
             system_message += f"""
-            
+
 Episode {i}:
-When: {episode['observation']}
-Thought: {episode['thoughts']}
-Did: {episode['action']}
-Result: {episode['result']}
+When: {episode["observation"]}
+Thought: {episode["thoughts"]}
+Did: {episode["action"]}
+Result: {episode["result"]}
         """
 
     # Step 3: Generate response using past experience
@@ -168,7 +168,6 @@ print(store.search(("memories", "episodes"), query="Trees"))
 #         score=0.30178054939692683,
 #     )
 # ]
-
 ```
 
 1. For production, use a persistent store like [`AsyncPostgresStore`](https://langchain-ai.github.io/langgraph/reference/store/#langgraph.store.postgres.AsyncPostgresStore)

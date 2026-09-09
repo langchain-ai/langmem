@@ -37,12 +37,12 @@ from langgraph.store.memory import InMemoryStore
 
 from langmem import ReflectionExecutor, create_memory_store_manager
 
-store = InMemoryStore( # (1)!
+store = InMemoryStore(  # (1)!
     index={
         "dims": 1536,
         "embed": "openai:text-embedding-3-small",
     }
-)  
+)
 llm = init_chat_model("anthropic:claude-3-5-sonnet-latest")
 
 # Create memory manager Runnable to extract memories from conversations
@@ -51,6 +51,7 @@ memory_manager = create_memory_store_manager(
     # Store memories in the "memories" namespace (aka directory)
     namespace=("memories",),  # (2)!
 )
+
 
 @entrypoint(store=store)  # Create a LangGraph workflow
 async def chat(message: str):
@@ -61,6 +62,8 @@ async def chat(message: str):
     to_process = {"messages": [{"role": "user", "content": message}] + [response]}
     await memory_manager.ainvoke(to_process)  # (3)!
     return response.content
+
+
 # Run conversation as normal
 response = await chat.ainvoke(
     "I like dogs. My dog's name is Fido.",

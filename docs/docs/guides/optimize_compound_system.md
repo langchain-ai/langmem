@@ -68,20 +68,17 @@ Output prompts:
 ```python
 [
     {
-        'name': 'researcher',
-        'prompt': '''You analyze technical papers and extract key findings. For each analysis, include:
+        "name": "researcher",
+        "prompt": """You analyze technical papers and extract key findings. For each analysis, include:
 1. High-level overview of the main contributions
 2. Technical implementation details and methodologies
 3. Architectural components and design choices
 4. Experimental results and performance metrics
 5. Practical implications and limitations
 
-Ensure your analysis maintains technical depth while remaining accessible. When discussing implementation details, include specific technical parameters, algorithms, and methodologies used. Structure your response to clearly separate these components.'''
+Ensure your analysis maintains technical depth while remaining accessible. When discussing implementation details, include specific technical parameters, algorithms, and methodologies used. Structure your response to clearly separate these components.""",
     },
-    {
-        'name': 'writer',
-        'prompt': 'You write clear reports based on research findings'
-    }
+    {"name": "writer", "prompt": "You write clear reports based on research findings"},
 ]
 ```
 

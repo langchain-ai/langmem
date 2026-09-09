@@ -88,8 +88,8 @@ optimizer = create_prompt_optimizer(
     kind="gradient",  # 2-10 LLM calls
     config={
         "max_reflection_steps": 3,  # Max improvement cycles
-        "min_reflection_steps": 1   # Min improvement cycles
-    }
+        "min_reflection_steps": 1,  # Min improvement cycles
+    },
 )
 updated = optimizer.invoke(
     {"trajectories": trajectories, "prompt": "You are a planetary science expert"}

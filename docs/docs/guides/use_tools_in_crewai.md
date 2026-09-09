@@ -39,12 +39,12 @@ memory_tools = [
 
 # Create an agent with memory tools
 knowledge_agent = Agent(
-    role='Knowledge Manager',
-    goal='Build and maintain a knowledge base',
+    role="Knowledge Manager",
+    goal="Build and maintain a knowledge base",
     backstory="""You are a knowledge management expert who excels at
     organizing and storing important information for future use.""",
     tools=memory_tools,
-    verbose=True
+    verbose=True,
 )
 ```
 
@@ -62,11 +62,11 @@ from langmem import create_manage_memory_tool, create_search_memory_tool
 
 # Set up shared store
 store = InMemoryStore(
-            index={
-                "dims": 1536,
-                "embed": "openai:text-embedding-3-small",
-            }
-        )
+    index={
+        "dims": 1536,
+        "embed": "openai:text-embedding-3-small",
+    }
+)
 
 # Create base tools
 base_tools = [
@@ -124,5 +124,4 @@ print(store.search(("memories",)))
 #         score=None,
 #     )
 # ]
-
 ```

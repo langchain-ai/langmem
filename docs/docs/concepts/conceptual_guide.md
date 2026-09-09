@@ -47,7 +47,7 @@ Finally, memory relevance is more than just semantic similarity. Recall should c
 
         ```python
         from langmem import create_memory_manager
-        
+
         # highlight-next-line
         manager = create_memory_manager(
             "anthropic:claude-3-5-sonnet-latest",
@@ -59,8 +59,11 @@ Finally, memory relevance is more than just semantic similarity. Recall should c
         # Process a conversation to extract semantic memories
         conversation = [
             {"role": "user", "content": "I work at Acme Corp in the ML team"},
-            {"role": "assistant", "content": "I'll remember that. What kind of ML work do you do?"},
-            {"role": "user", "content": "Mostly NLP and large language models"}
+            {
+                "role": "assistant",
+                "content": "I'll remember that. What kind of ML work do you do?",
+            },
+            {"role": "user", "content": "Mostly NLP and large language models"},
         ]
         ```
 
@@ -97,7 +100,6 @@ Finally, memory relevance is more than just semantic similarity. Recall should c
     #         ),
     #     ),
     # ]
-
     ```
 
 #### Profiles
@@ -117,6 +119,7 @@ Finally, memory relevance is more than just semantic similarity. Recall should c
 
         class UserProfile(BaseModel):
             """Save the user's preferences."""
+
             name: str
             preferred_name: str
             response_style_preference: str
@@ -133,9 +136,18 @@ Finally, memory relevance is more than just semantic similarity. Recall should c
 
         # Extract user preferences from a conversation
         conversation = [
-            {"role": "user", "content": "Hi! I'm Alex but please call me Lex. I'm a wizard at Python and love making AI systems that don't sound like boring corporate robots 🤖"},
-            {"role": "assistant", "content": "Nice to meet you, Lex! Love the anti-corporate-robot stance. How would you like me to communicate with you?"},
-            {"role": "user", "content": "Keep it casual and witty - and maybe throw in some relevant emojis when it feels right ✨ Also, besides AI, I do competitive speedcubing!"},
+            {
+                "role": "user",
+                "content": "Hi! I'm Alex but please call me Lex. I'm a wizard at Python and love making AI systems that don't sound like boring corporate robots 🤖",
+            },
+            {
+                "role": "assistant",
+                "content": "Nice to meet you, Lex! Love the anti-corporate-robot stance. How would you like me to communicate with you?",
+            },
+            {
+                "role": "user",
+                "content": "Keep it casual and witty - and maybe throw in some relevant emojis when it feels right ✨ Also, besides AI, I do competitive speedcubing!",
+            },
         ]
         ```
 
@@ -176,26 +188,16 @@ Episodic memory preserves successful interactions as learning examples that guid
         from pydantic import BaseModel, Field
         from langmem import create_memory_manager
 
+
         class Episode(BaseModel):
             """An episode captures how to handle a specific situation, including the reasoning process
             and what made it successful."""
-            
-            observation: str = Field(
-                ..., 
-                description="The situation and relevant context"
-            )
-            thoughts: str = Field(
-                ...,
-                description="Key considerations and reasoning process"
-            )
-            action: str = Field(
-                ...,
-                description="What was done in response"
-            )
-            result: str = Field(
-                ...,
-                description="What happened and why it worked"
-            )
+
+            observation: str = Field(..., description="The situation and relevant context")
+            thoughts: str = Field(..., description="Key considerations and reasoning process")
+            action: str = Field(..., description="What was done in response")
+            result: str = Field(..., description="What happened and why it worked")
+
 
         # highlight-next-line
         manager = create_memory_manager(
@@ -207,9 +209,18 @@ Episodic memory preserves successful interactions as learning examples that guid
 
         # Example conversation
         conversation = [
-            {"role": "user", "content": "What's a binary tree? I work with family trees if that helps"},
-            {"role": "assistant", "content": "A binary tree is like a family tree, but each parent has at most 2 children. Here's a simple example:\n   Bob\n  /  \\\nAmy  Carl\n\nJust like in family trees, we call Bob the 'parent' and Amy and Carl the 'children'."},
-            {"role": "user", "content": "Oh that makes sense! So in a binary search tree, would it be like organizing a family by age?"},
+            {
+                "role": "user",
+                "content": "What's a binary tree? I work with family trees if that helps",
+            },
+            {
+                "role": "assistant",
+                "content": "A binary tree is like a family tree, but each parent has at most 2 children. Here's a simple example:\n   Bob\n  /  \\\nAmy  Carl\n\nJust like in family trees, we call Bob the 'parent' and Amy and Carl the 'children'.",
+            },
+            {
+                "role": "user",
+                "content": "Oh that makes sense! So in a binary search tree, would it be like organizing a family by age?",
+            },
         ]
         ```
 
@@ -264,7 +275,7 @@ Procedural memory encodes how an agent should behave and respond. It starts with
         optimizer = create_prompt_optimizer(
             "anthropic:claude-3-5-sonnet-latest",
             kind="metaprompt",
-            config={"max_reflection_steps": 3}
+            config={"max_reflection_steps": 3},
         )
         ```
     ```python
@@ -274,10 +285,9 @@ Procedural memory encodes how an agent should behave and respond. It starts with
         {"role": "assistant", "content": "Here's a detailed theoretical explanation..."},
         {"role": "user", "content": "Show me a practical example instead"},
     ]
-    optimized = optimizer.invoke({
-        "trajectories": [(trajectory, {"user_score": 0})], 
-        "prompt": prompt
-    })
+    optimized = optimizer.invoke(
+        {"trajectories": [(trajectory, {"user_score": 0})], "prompt": prompt}
+    )
     print(optimized)
     # You are a helpful assistant with expertise in explaining technical concepts clearly and practically. When explaining programming concepts:
 

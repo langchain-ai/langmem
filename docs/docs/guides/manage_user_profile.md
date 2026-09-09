@@ -23,6 +23,7 @@ from typing import Optional
 # Define profile structure
 class UserProfile(BaseModel):
     """Represents the full representation of a user."""
+
     name: Optional[str] = None
     language: Optional[str] = None
     timezone: Optional[str] = None
@@ -31,7 +32,7 @@ class UserProfile(BaseModel):
 # Configure extraction
 manager = create_memory_manager(
     "anthropic:claude-3-5-sonnet-latest",
-    schemas=[UserProfile], # (optional) customize schema (1)
+    schemas=[UserProfile],  # (optional) customize schema (1)
     instructions="Extract user profile information",
     enable_inserts=False,  # Profiles update in-place (2)
 )
@@ -91,13 +92,12 @@ manager = create_memory_store_manager(
     enable_inserts=False,  # Update existing profile only
 )
 
+
 @entrypoint(store=store)
 def chat(messages: list):
     # Get user's profile for personalization
     configurable = get_config()["configurable"]
-    results = store.search(
-        ("users", configurable["user_id"], "profile")
-    )
+    results = store.search(("users", configurable["user_id"], "profile"))
     profile = None
     if results:
         profile = f"""<User Profile>:
@@ -105,29 +105,29 @@ def chat(messages: list):
 {results[0].value}
 </User Profile>
 """
-    
+
     # Use profile in system message
-    response = my_llm.invoke([
-        {
-            "role": "system",
-            "content": f"""You are a helpful assistant.{profile}"""
-        },
-        *messages
-    ])
+    response = my_llm.invoke(
+        [
+            {"role": "system", "content": f"""You are a helpful assistant.{profile}"""},
+            *messages,
+        ]
+    )
 
     # Update profile with any new information
     manager.invoke({"messages": messages})
     return response
 
+
 # Example usage
 await chat.ainvoke(
     [{"role": "user", "content": "I'm Alice from California"}],
-    config={"configurable": {"user_id": "user-123"}}
+    config={"configurable": {"user_id": "user-123"}},
 )
 
 await chat.ainvoke(
     [{"role": "user", "content": "I just passed the N1 exam!"}],
-    config={"configurable": {"user_id": "user-123"}}
+    config={"configurable": {"user_id": "user-123"}},
 )
 
 print(store.search(("users", "user-123", "profile")))
