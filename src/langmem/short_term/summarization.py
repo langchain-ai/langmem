@@ -244,8 +244,11 @@ def _adjust_messages_before_summarization(
         )
         if not adjusted_messages_to_summarize:
             warnings.warn(
-                "Failed to trim messages to fit within max_tokens limit before summarization - "
-                "falling back to the original message list. "
+                "Failed to trim messages to fit within max_tokens limit before summarization. "
+                "No HumanMessage was found within the retained message window. "
+                "Increase `max_tokens` or decrease `max_tokens_before_summary` "
+                "so the retained window includes a HumanMessage. "
+                "Falling back to the original message list. "
                 "This may lead to exceeding the context window of the summarization LLM.",
                 RuntimeWarning,
             )
@@ -376,6 +379,11 @@ def summarize_messages(
                 If the number of tokens to be summarized is greater than max_tokens, only the last max_tokens amongst those
                 will be summarized. This is done to prevent exceeding the context window of the summarization LLM
                 (assumed to be capped at max_tokens).
+
+                The retained message window must include a `HumanMessage`. If trimming cannot find one,
+                the function emits a `RuntimeWarning` and falls back to the original message list.
+                Increase `max_tokens` or decrease `max_tokens_before_summary` so the retained window
+                includes a `HumanMessage`.
         max_summary_tokens: Maximum number of tokens to budget for the summary.
 
             !!! Note
@@ -537,6 +545,11 @@ async def asummarize_messages(
                 If the number of tokens to be summarized is greater than max_tokens, only the last max_tokens amongst those
                 will be summarized. This is done to prevent exceeding the context window of the summarization LLM
                 (assumed to be capped at max_tokens).
+
+                The retained message window must include a `HumanMessage`. If trimming cannot find one,
+                the function emits a `RuntimeWarning` and falls back to the original message list.
+                Increase `max_tokens` or decrease `max_tokens_before_summary` so the retained window
+                includes a `HumanMessage`.
         max_summary_tokens: Maximum number of tokens to budget for the summary.
 
             !!! Note
@@ -698,6 +711,11 @@ class SummarizationNode(RunnableCallable):
                     If the number of tokens to be summarized is greater than max_tokens, only the last max_tokens amongst those
                     will be summarized. This is done to prevent exceeding the context window of the summarization LLM
                     (assumed to be capped at max_tokens).
+
+                    The retained message window must include a `HumanMessage`. If trimming cannot find one,
+                    the node emits a `RuntimeWarning` and falls back to the original message list.
+                    Increase `max_tokens` or decrease `max_tokens_before_summary` so the retained window
+                    includes a `HumanMessage`.
             max_summary_tokens: Maximum number of tokens to budget for the summary.
 
                 !!! Note
