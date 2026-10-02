@@ -263,6 +263,7 @@ class LocalReflectionExecutor:
         self._store = store
         self._task_queue = queue.PriorityQueue()
         self._pending_tasks: dict[str, PendingTask] = {}
+        self._pending_tasks_lock = threading.Lock()
         self._worker_running = True
         self._worker = threading.Thread(
             target=functools.partial(_process_queue, self), daemon=False
@@ -305,12 +306,6 @@ class LocalReflectionExecutor:
                             " Please initialize the store with ReflectionExecutor(my_memory_manager, store=your_base_store)."
                         ) from None
         thread_id = typing.cast(typing.Optional[str], thread_id)
-        if thread_id in self._pending_tasks:
-            existing = self._pending_tasks.get(thread_id)
-            if existing:
-                existing.cancel_event.set()
-                existing.future.cancel()
-
         future = Future()
         cancel_event = threading.Event()
 
@@ -323,8 +318,13 @@ class LocalReflectionExecutor:
             cancel_event=cancel_event,
             config=config,
         )
-        if thread_id:
-            self._pending_tasks[thread_id] = task
+        with self._pending_tasks_lock:
+            existing = self._pending_tasks.get(thread_id) if thread_id else None
+            if thread_id:
+                self._pending_tasks[thread_id] = task
+        if existing:
+            existing.cancel_event.set()
+            existing.future.cancel()
         self._task_queue.put((time.time() + after_seconds, task))
         return future
 
@@ -368,15 +368,24 @@ class LocalReflectionExecutor:
 
     def shutdown(self, wait=True, *, cancel_futures=False):
         self._worker_running = False
+        with self._pending_tasks_lock:
+            pending_tasks = list(self._pending_tasks.values())
         if cancel_futures:
-            for task in list(self._pending_tasks.values()):
+            for task in pending_tasks:
                 task.cancel_event.set()
                 task.future.cancel()
         if wait:
-            for task in list(self._pending_tasks.values()):
+            for task in pending_tasks:
                 if not task.future.cancelled():
                     task.future.result()
             self._worker.join()
+
+    def _discard_pending_task(self, task: "PendingTask") -> None:
+        if task.thread_id is None:
+            return
+        with self._pending_tasks_lock:
+            if self._pending_tasks.get(task.thread_id) is task:
+                self._pending_tasks.pop(task.thread_id)
 
     def __enter__(self):
         return self
@@ -403,7 +412,7 @@ def _process_queue(self: "LocalReflectionExecutor"):
         try:
             execute_at, task = self._task_queue.get(timeout=1)
             if task.future.cancelled():
-                self._pending_tasks.pop(task.thread_id, None)
+                self._discard_pending_task(task)
                 continue
             now = time.time()
             if execute_at > now:
@@ -412,14 +421,14 @@ def _process_queue(self: "LocalReflectionExecutor"):
                     self._task_queue.put((execute_at, task))
                     continue
             if task.cancel_event.is_set():
-                self._pending_tasks.pop(task.thread_id, None)
-                try:
-                    task.future.set_result(None)
-                except Exception:
-                    pass
+                self._discard_pending_task(task)
+                task.future.cancel()
                 continue
             if task.future.cancelled():
-                self._pending_tasks.pop(task.thread_id, None)
+                self._discard_pending_task(task)
+                continue
+            if not task.future.set_running_or_notify_cancel():
+                self._discard_pending_task(task)
                 continue
 
             try:
@@ -440,7 +449,7 @@ def _process_queue(self: "LocalReflectionExecutor"):
                 if not task.future.cancelled():
                     task.future.set_exception(e)
             finally:
-                self._pending_tasks.pop(task.thread_id, None)
+                self._discard_pending_task(task)
 
         except queue.Empty:
             continue
@@ -451,6 +460,16 @@ def _process_queue(self: "LocalReflectionExecutor"):
     # Drain the queue
     while not self._task_queue.empty():
         execute_at, task = self._task_queue.get()
+        if task.cancel_event.is_set():
+            self._discard_pending_task(task)
+            task.future.cancel()
+            continue
+        if task.future.cancelled():
+            self._discard_pending_task(task)
+            continue
+        if not task.future.set_running_or_notify_cancel():
+            self._discard_pending_task(task)
+            continue
         try:
             config = task.config or {}
             configurable = config.setdefault(CONF, {})
@@ -468,7 +487,7 @@ def _process_queue(self: "LocalReflectionExecutor"):
         except Exception as e:
             task.future.set_exception(e)
         finally:
-            self._pending_tasks.pop(task.thread_id, None)
+            self._discard_pending_task(task)
 
 
 __all__ = ["LocalReflectionExecutor", "RemoteReflectionExecutor", "ReflectionExecutor"]
