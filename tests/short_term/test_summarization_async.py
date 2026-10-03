@@ -207,6 +207,37 @@ async def test_max_tokens_before_summary():
     assert result.messages[1:] == messages[-1:]
 
 
+async def test_warns_when_trimmed_window_has_no_human_message():
+    model = FakeChatModel(
+        responses=[AIMessage(content="This is a summary of the conversation.")]
+    )
+    messages = [
+        HumanMessage(content="Message 1", id="1"),
+        AIMessage(content="Response 1", id="2"),
+        AIMessage(content="Response 2", id="3"),
+        AIMessage(content="Response 3", id="4"),
+        AIMessage(content="Response 4", id="5"),
+        HumanMessage(content="Latest message", id="6"),
+    ]
+
+    with pytest.warns(
+        RuntimeWarning,
+        match=(
+            "No HumanMessage was found within the retained message window.*"
+            "Increase `max_tokens` or decrease `max_tokens_before_summary`"
+        ),
+    ):
+        await asummarize_messages(
+            messages,
+            running_summary=None,
+            model=model,
+            token_counter=len,
+            max_tokens=4,
+            max_tokens_before_summary=5,
+            max_summary_tokens=1,
+        )
+
+
 async def test_with_system_message():
     """Test summarization with a system message present."""
     model = FakeChatModel(
