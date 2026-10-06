@@ -304,6 +304,7 @@ class LocalReflectionExecutor:
                             "ReflectionExecutor could not resolve store to persist memories to."
                             " Please initialize the store with ReflectionExecutor(my_memory_manager, store=your_base_store)."
                         ) from None
+                    self._store = existing_store
         thread_id = typing.cast(typing.Optional[str], thread_id)
         if thread_id in self._pending_tasks:
             existing = self._pending_tasks.get(thread_id)
