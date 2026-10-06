@@ -334,7 +334,7 @@ class MultiPromptOptimizer(
                     return self
 
             classifier = create_extractor(
-                self.model, tools=[Classify], tool_choice="Classify"
+                self.model, tools=[Classify], tool_choice="any"
             )
             prompt_joined_content = "".join(
                 f"{p['name']}: {p['prompt']}\n" for p in prompts
@@ -421,7 +421,7 @@ Return JSON with "which": [...], listing the names of prompts that need updates.
                     return self
 
             classifier = create_extractor(
-                self.model, tools=[Classify], tool_choice="Classify"
+                self.model, tools=[Classify], tool_choice="any"
             )
             prompt_joined_content = "".join(
                 f"{p['name']}: {p['prompt']}\n" for p in prompts
