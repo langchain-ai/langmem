@@ -41,6 +41,28 @@ from langmem.knowledge.tools import create_search_memory_tool
 # ```  # end-setup
 
 
+
+
+def _parse_store_value(value: dict) -> tuple[str, dict]:
+    """Parse a store item value into (kind, content), handling both formats.
+
+    The manage_memory_tool (hot path) writes: {"content": <str_or_dict>}
+    The MemoryStoreManager (cold path) writes: {"kind": "Memory", "content": {...}}
+
+    This function normalizes both formats into a (kind, content) tuple so that
+    the two code paths can coexist without KeyError.
+    """
+    if "kind" in value and "content" in value:
+        return value["kind"], value["content"]
+    if "content" in value:
+        content = value["content"]
+        if isinstance(content, str):
+            return "Memory", {"content": content}
+        if isinstance(content, dict):
+            return "Memory", content
+        return "Memory", {"content": content}
+    return "Memory", value
+
 class Item(BaseItem):
     value: BaseModel | dict[str, typing.Any]
 
@@ -1063,7 +1085,7 @@ class MemoryStoreManager(Runnable[MemoryStoreManagerInput, list[dict]]):
             )
 
         store_based = [
-            (sid, item.value["kind"], item.value["content"])
+            (sid, *_parse_store_value(item.value))
             for sid, item in store_map.items()
         ]
         ephemeral: list[tuple[str, str, dict]] = []
@@ -1106,7 +1128,8 @@ class MemoryStoreManager(Runnable[MemoryStoreManagerInput, list[dict]]):
                 continue
             if sid in store_map:
                 old_art = store_map[sid]
-                if old_art.value["kind"] != kind or old_art.value["content"] != content:
+                old_kind, old_content = _parse_store_value(old_art.value)
+                if old_kind != kind or old_content != content:
                     final_puts.append(
                         {
                             "namespace": old_art.namespace,
@@ -1207,7 +1230,7 @@ class MemoryStoreManager(Runnable[MemoryStoreManagerInput, list[dict]]):
                 self.query_limit,
             )
         store_based = [
-            (sid, item.value["kind"], item.value["content"])
+            (sid, *_parse_store_value(item.value))
             for sid, item in store_map.items()
         ]
         ephemeral: list[tuple[str, str, dict]] = []
@@ -1248,7 +1271,8 @@ class MemoryStoreManager(Runnable[MemoryStoreManagerInput, list[dict]]):
                 continue
             if sid in store_map:
                 old_art = store_map[sid]
-                if old_art.value["kind"] != kind or old_art.value["content"] != content:
+                old_kind, old_content = _parse_store_value(old_art.value)
+                if old_kind != kind or old_content != content:
                     final_puts.append(
                         {
                             "namespace": old_art.namespace,
