@@ -36,6 +36,7 @@ def create_manage_memory_tool(
     ] = ("create", "update", "delete"),
     store: typing.Optional[BaseStore] = None,
     name: str = "manage_memory",
+    strict_mode: bool = False,
 ):
     """Create a tool for managing persistent memories in conversations.
 
@@ -51,6 +52,7 @@ def create_manage_memory_tool(
             Uses runtime configuration with placeholders like `{langgraph_user_id}`.
         store: The BaseStore to use for searching. If not provided, the tool will use the configured BaseStore in your graph or entrypoint.
             Only set if you intend on using these tools outside the LangGraph context.
+        strict_mode: If True, the tool schema will be compatible with OpenAI's Structured Outputs (strict: true).
 
     Returns:
         memory_tool (Tool): A decorated async function that can be used as a tool for memory management.
@@ -351,7 +353,9 @@ def create_manage_memory_tool(
 Include the MEMORY ID when updating or deleting a MEMORY. Omit when creating a new MEMORY - it will be created for you.
 {instructions}"""
 
-    return _ToolWithRequired.from_function(
+    tool_cls = _ToolStrictCompatible if strict_mode else _ToolWithRequired
+
+    return tool_cls.from_function(
         manage_memory, amanage_memory, name=name, description=description
     )
 
@@ -366,6 +370,7 @@ def create_search_memory_tool(
     store: BaseStore | None = None,
     response_format: typing.Literal["content", "content_and_artifact"] = "content",
     name: str = "search_memory",
+    strict_mode: bool = False,
 ):
     """Create a tool for searching memories stored in a LangGraph BaseStore.
 
@@ -381,6 +386,7 @@ def create_search_memory_tool(
             See [Memory Namespaces](../concepts/conceptual_guide.md#memory-namespaces).
         store: The BaseStore to use for searching. If not provided, the tool will use the configured BaseStore in your graph or entrypoint.
             Only set if you intend on using these tools outside the LangGraph context.
+        strict_mode: If True, the tool schema will be compatible with OpenAI's Structured Outputs (strict: true).
 
     Returns:
         search_tool (Tool): A decorated function that can be used as a tool for memory search.
@@ -477,7 +483,9 @@ def create_search_memory_tool(
         instructions=instructions
     )
 
-    return StructuredTool.from_function(
+    tool_cls = _ToolStrictCompatible if strict_mode else StructuredTool
+
+    return tool_cls.from_function(
         search_memory,
         asearch_memory,
         name=name,
@@ -525,6 +533,51 @@ class _ToolWithRequired(StructuredTool):
             pass
         return tcs
 
+class _ToolStrictCompatible(StructuredTool):
+    @functools.cached_property
+    def tool_call_schema(self) -> "ArgsSchema":
+        tcs = super().tool_call_schema
+        try:
+            if tcs.model_config:
+                tcs.model_config["json_schema_extra"] = _ensure_schema_strict_compatible
+            elif ConfigDict is not None:
+                tcs.model_config = ConfigDict(
+                    json_schema_extra=_ensure_schema_strict_compatible
+                )
+        except Exception:
+            pass
+        return tcs
+
 
 def _ensure_schema_contains_required(schema: dict) -> None:
     schema.setdefault("required", [])
+
+
+def _ensure_schema_strict_compatible(schema: dict) -> None:
+    """Modify JSON schema to be compatible with OpenAI's Structured Outputs (strict: true).
+    
+    OpenAI's strict mode requires:
+    1. All properties must be listed in the 'required' array
+    2. 'additionalProperties' must be set to false
+    
+    See: https://platform.openai.com/docs/guides/structured-outputs/supported-schemas
+    
+    Args:
+        schema: The JSON schema dictionary to modify in-place
+    """
+    props = schema.get("properties", {})
+    # All fields must be `required`
+    schema["required"] = list(props.keys())
+
+    def fix_additional_properties(obj):
+        if isinstance(obj, dict):
+            if obj.get("type") == "object" and "additionalProperties" in obj and obj["additionalProperties"]:
+                obj["additionalProperties"] = False
+            for v in obj.values():
+                fix_additional_properties(v)
+        elif isinstance(obj, list):
+            for item in obj:
+                fix_additional_properties(item)
+
+    # `additionalProperties` should be set to `false` for strict mode
+    fix_additional_properties(schema)
