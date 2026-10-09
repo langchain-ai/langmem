@@ -10,6 +10,7 @@ from langchain_core.messages.utils import count_tokens_approximately
 from langmem.short_term.summarization import summarize_messages, SummarizationNode
 from tests.short_term.utils import FakeChatModel
 
+
 def test_empty_input():
     model = FakeChatModel(responses=[])
 
@@ -113,9 +114,7 @@ def test_summarize_first_time():
     summary_value = result.running_summary
     assert summary_value is not None
     assert summary_value.summary == "This is a summary of the conversation."
-    assert summary_value.summarized_message_ids == set(
-        msg.id for msg in messages[:6]
-    )
+    assert summary_value.summarized_message_ids == set(msg.id for msg in messages[:6])
 
     # Test subsequent invocation (no new summary needed)
     result = summarize_messages(
@@ -574,6 +573,114 @@ def test_last_ai_with_tool_calls():
     )
 
 
+def test_tool_cutoff_mid_sequence():
+    """Test that tool results are included when cutoff falls on a ToolMessage.
+
+    When an AIMessage has multiple tool_calls and the token cutoff lands on
+    a ToolMessage (not the AIMessage itself), the remaining tool results
+    must still be appended to messages_to_summarize.
+
+    Reproduces: https://github.com/langchain-ai/langmem/issues/126
+    See also: https://github.com/langchain-ai/langmem/issues/112
+    """
+    model = FakeChatModel(
+        responses=[AIMessage(content="Summary of tool call sequence.")]
+    )
+
+    messages = [
+        HumanMessage(content="Message 1", id="1"),
+        AIMessage(
+            content="",
+            id="2",
+            tool_calls=[
+                {"name": "tool_1", "id": "1", "args": {"arg1": "value1"}},
+                {"name": "tool_2", "id": "2", "args": {"arg1": "value1"}},
+            ],
+        ),
+        # Cutoff lands here (on a ToolMessage, not on the AIMessage)
+        ToolMessage(content="Call tool 1", tool_call_id="1", name="tool_1", id="3"),
+        # This tool result is outside the cutoff range
+        ToolMessage(content="Call tool 2", tool_call_id="2", name="tool_2", id="4"),
+        AIMessage(content="Response 1", id="5"),
+        HumanMessage(content="Message 2", id="6"),
+    ]
+
+    result = summarize_messages(
+        messages,
+        running_summary=None,
+        model=model,
+        token_counter=len,
+        max_tokens_before_summary=3,
+        max_tokens=6,
+        max_summary_tokens=1,
+    )
+
+    # Both tool messages must be included in summarization
+    assert len(result.messages) == 3
+    assert result.messages[0].type == "system"  # Summary
+    assert result.messages[-2:] == messages[-2:]
+    assert result.running_summary.summarized_message_ids == set(
+        msg.id for msg in messages[:-2]
+    )
+
+
+def test_multiple_ai_messages_with_tool_calls():
+    """Test that tool results are repaired for ALL AIMessages, not just the last.
+
+    When the summarization range contains multiple AIMessages with tool_calls,
+    missing tool results must be appended for each one.
+    """
+    model = FakeChatModel(
+        responses=[AIMessage(content="Summary of multiple tool sequences.")]
+    )
+
+    messages = [
+        HumanMessage(content="Message 1", id="1"),
+        # First AI with tool calls
+        AIMessage(
+            content="",
+            id="2",
+            tool_calls=[
+                {"name": "tool_a", "id": "a1", "args": {}},
+            ],
+        ),
+        ToolMessage(content="Result a1", tool_call_id="a1", name="tool_a", id="3"),
+        # Second AI with tool calls
+        AIMessage(
+            content="",
+            id="4",
+            tool_calls=[
+                {"name": "tool_b", "id": "b1", "args": {}},
+                {"name": "tool_c", "id": "b2", "args": {}},
+            ],
+        ),
+        # Cutoff lands here — only first tool result included
+        ToolMessage(content="Result b1", tool_call_id="b1", name="tool_b", id="5"),
+        # This tool result is outside the cutoff range
+        ToolMessage(content="Result b2", tool_call_id="b2", name="tool_c", id="6"),
+        AIMessage(content="Done", id="7"),
+        HumanMessage(content="Message 2", id="8"),
+    ]
+
+    result = summarize_messages(
+        messages,
+        running_summary=None,
+        model=model,
+        token_counter=len,
+        max_tokens_before_summary=5,
+        max_tokens=8,
+        max_summary_tokens=1,
+    )
+
+    # All tool messages from both AI messages must be included
+    assert len(result.messages) == 3
+    assert result.messages[0].type == "system"
+    assert result.messages[-2:] == messages[-2:]
+    assert result.running_summary.summarized_message_ids == set(
+        msg.id for msg in messages[:-2]
+    )
+
+
 def test_missing_message_ids():
     messages = [
         HumanMessage(content="Message 1", id="1"),
@@ -781,7 +888,9 @@ def test_summarization_node():
     )  # All messages except the latest
 
     # Test subsequent invocation (no new summary needed)
-    result = summarization_node.invoke({"messages": messages, "context": {"running_summary": summary_value}})
+    result = summarization_node.invoke(
+        {"messages": messages, "context": {"running_summary": summary_value}}
+    )
     assert len(result["summarized_messages"]) == 4
     assert result["summarized_messages"][0].type == "system"
     assert (
@@ -858,7 +967,9 @@ def test_summarization_node_same_key():
     messages2.extend(new_messages)
 
     # Second summarization
-    result2 = summarization_node.invoke({"messages": messages2, "context": {"running_summary": summary_value}})
+    result2 = summarization_node.invoke(
+        {"messages": messages2, "context": {"running_summary": summary_value}}
+    )
 
     # Check that model was called twice
     assert len(model.invoke_calls) == 2
@@ -877,7 +988,7 @@ def test_summarization_node_same_key():
         "Message 4",
         "Response 4",
         "Message 5",
-        "Response 5"
+        "Response 5",
     ]
 
     # Verify the structure of the final result
