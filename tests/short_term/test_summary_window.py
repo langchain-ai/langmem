@@ -75,6 +75,46 @@ def test_summary_window_reuses_running_summary_without_duplicate_messages(asynch
 
 
 @pytest.mark.parametrize("asynchronous", [False, True])
+def test_summary_window_preserves_fresh_tokens_across_summaries(asynchronous):
+    def count_content_tokens(messages):
+        return sum(len(str(message.content)) for message in messages)
+
+    model = FakeChatModel(
+        responses=[AIMessage(content="short"), AIMessage(content="short")]
+    )
+    messages = [
+        HumanMessage(content="a" * size, id=str(index))
+        for index, size in enumerate((12, 8, 10, 10, 10))
+    ]
+    options = {
+        "max_tokens": 50,
+        "max_tokens_before_summary": 50,
+        "summary_window": 20,
+        "max_summary_tokens": 5,
+        "token_counter": count_content_tokens,
+    }
+
+    before_trigger = summarize(messages[:-1], model, asynchronous, **options)
+    assert before_trigger.running_summary is None
+
+    first = summarize(messages, model, asynchronous, **options)
+    assert first.running_summary.summarized_message_ids == {"0", "1"}
+    assert first.messages[1:] == messages[2:]
+
+    new_message = HumanMessage(content="b" * 15, id="5")
+    second = summarize(
+        [*messages, new_message],
+        model,
+        asynchronous,
+        running_summary=first.running_summary,
+        **options,
+    )
+    assert second.running_summary.summarized_message_ids == {"0", "1", "2", "3"}
+    assert second.messages[1:] == [messages[4], new_message]
+    assert len(model.invoke_calls) == 2
+
+
+@pytest.mark.parametrize("asynchronous", [False, True])
 def test_summary_window_rejects_non_positive_values(asynchronous):
     model = FakeChatModel(responses=[])
     messages = [HumanMessage(content="hello", id="0")]
