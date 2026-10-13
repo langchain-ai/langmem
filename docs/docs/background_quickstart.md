@@ -72,6 +72,27 @@ print(response)
 # Output: That's nice! Dogs make wonderful companions. Fido is a classic dog name. What kind of dog is Fido?
 ```
 
+!!! note "Use OrcaRouter as your model"
+    [OrcaRouter](https://www.orcarouter.ai) is an OpenAI-compatible model routing gateway that
+    exposes 150+ models from OpenAI, Anthropic, Google, DeepSeek, Qwen, MiniMax and xAI behind a
+    single endpoint and API key (`sk-orca-...`). Pass a `ChatOpenAI` instance pointed at its
+    OpenAI-compatible endpoint to the memory manager (and use it as the `llm`):
+
+    ```python
+    from langchain_openai import ChatOpenAI
+
+    llm = ChatOpenAI(
+        model="openai/gpt-4o-mini",
+        base_url="https://api.orcarouter.ai/v1",
+        api_key="sk-orca-...",  # or set ORCAROUTER_API_KEY
+    )
+    memory_manager = create_memory_store_manager(llm, namespace=("memories",))
+    ```
+
+    OrcaRouter routes by the namespaced model id, so keep the `openai/` prefix in the `model`
+    argument. If you use `init_chat_model("openai:openai/gpt-4o-mini", ...)`, the extra `openai:`
+    prefix is required because LangChain strips one provider prefix.
+
 1. What's a store? It's a document store you can add vector-search too. The "InMemoryStore" is, as it says, saved in-memory and not persistent.
 
     !!! tip "For Production"
