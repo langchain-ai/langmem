@@ -198,20 +198,49 @@ def _preprocess_messages(
     else:
         messages_to_summarize = messages[total_summarized_messages : idx + 1]
 
-    # If the last message is an AI message with tool calls,
-    # include subsequent corresponding tool messages in the summary as well,
-    # to avoid issues w/ the LLM provider
-    if (
-        messages_to_summarize
-        and isinstance(messages_to_summarize[-1], AIMessage)
-        and (tool_calls := messages_to_summarize[-1].tool_calls)
-    ):
-        # Add any matching tool messages from our dictionary
-        for tool_call in tool_calls:
-            if tool_call["id"] in tool_call_id_to_tool_message:
-                tool_message = tool_call_id_to_tool_message[tool_call["id"]]
-                n_tokens_to_summarize += token_counter([tool_message])
-                messages_to_summarize.append(tool_message)
+    # Ensure complete tool call sequences in summarization boundary.
+    # If the boundary cuts through tool calls (either ending with AIMessage with tool_calls
+    # or ToolMessage), include all corresponding tool messages to avoid issues with LLM providers
+    # that require complete AIMessage->ToolMessage sequences.
+    if messages_to_summarize:
+        ai_message_with_tool_calls = None
+        expected_tool_call_ids = set()
+        
+        # Case 1: Last message is AIMessage with tool_calls
+        if (isinstance(messages_to_summarize[-1], AIMessage) 
+            and messages_to_summarize[-1].tool_calls):
+            ai_message_with_tool_calls = messages_to_summarize[-1]
+            expected_tool_call_ids = {tc["id"] for tc in ai_message_with_tool_calls.tool_calls}
+        
+        # Case 2: Last message is ToolMessage - find the preceding AIMessage
+        elif isinstance(messages_to_summarize[-1], ToolMessage):
+            # Work backwards to find the AIMessage that initiated these tool calls
+            for i in range(len(messages_to_summarize) - 1, -1, -1):
+                msg = messages_to_summarize[i]
+                if isinstance(msg, AIMessage) and msg.tool_calls:
+                    ai_message_with_tool_calls = msg
+                    expected_tool_call_ids = {tc["id"] for tc in msg.tool_calls}
+                    break
+        
+        # If we found an AIMessage with tool_calls, ensure all tool responses are included
+        if ai_message_with_tool_calls and expected_tool_call_ids:
+            # Get tool_call_ids already included in messages_to_summarize
+            existing_tool_call_ids = {
+                msg.tool_call_id 
+                for msg in messages_to_summarize 
+                if isinstance(msg, ToolMessage) and msg.tool_call_id
+            }
+            
+            # Find missing tool_call_ids that need responses
+            missing_tool_call_ids = expected_tool_call_ids - existing_tool_call_ids
+            
+            # Add missing tool messages
+            for tool_call_id in missing_tool_call_ids:
+                if tool_call_id in tool_call_id_to_tool_message:
+                    tool_message = tool_call_id_to_tool_message[tool_call_id]
+                    n_tokens_to_summarize += token_counter([tool_message])
+                    messages_to_summarize.append(tool_message)
+
 
     return PreprocessedMessages(
         messages_to_summarize=messages_to_summarize,

@@ -574,6 +574,142 @@ def test_last_ai_with_tool_calls():
     )
 
 
+def test_boundary_ends_with_tool_message():
+    """Test case where summarization boundary ends with a ToolMessage."""
+    model = FakeChatModel(responses=[AIMessage(content="Summary with tool sequence.")])
+
+    messages = [
+        # these will be summarized
+        HumanMessage(content="Message 1", id="1"),
+        AIMessage(
+            content="",
+            id="2",
+            tool_calls=[
+                {"name": "tool_1", "id": "1", "args": {"arg1": "value1"}},
+                {"name": "tool_2", "id": "2", "args": {"arg1": "value1"}},
+            ],
+        ),
+        ToolMessage(content="Call tool 1", tool_call_id="1", name="tool_1", id="3"),
+        # Boundary ends here with a ToolMessage, but tool_2 response is outside
+        ToolMessage(content="Call tool 2", tool_call_id="2", name="tool_2", id="4"),
+        # these will be kept in the final result
+        AIMessage(content="Response 1", id="5"),
+        HumanMessage(content="Message 2", id="6"),
+    ]
+
+    # Call the summarizer - boundary ends at message 3 (first ToolMessage)
+    result = summarize_messages(
+        messages,
+        running_summary=None,
+        model=model,
+        token_counter=len,
+        max_tokens_before_summary=3,
+        max_tokens=6,
+        max_summary_tokens=1,
+    )
+
+    # Check that both tool messages are included in summarization
+    # even though boundary originally ended with just the first ToolMessage
+    assert len(result.messages) == 3
+    assert result.messages[0].type == "system"  # Summary
+    assert result.messages[-2:] == messages[-2:]
+    # Should include all messages up to and including both ToolMessages
+    assert result.running_summary.summarized_message_ids == set(
+        msg.id for msg in messages[:-2]
+    )
+
+
+def test_missing_tool_messages_added():
+    """Test case where AIMessage with tool_calls is in boundary but some ToolMessages are outside."""
+    model = FakeChatModel(responses=[AIMessage(content="Summary with complete tool sequence.")])
+
+    messages = [
+        # these will be summarized
+        HumanMessage(content="Message 1", id="1"),
+        AIMessage(
+            content="",
+            id="2",
+            tool_calls=[
+                {"name": "tool_1", "id": "1", "args": {"arg1": "value1"}},
+                {"name": "tool_2", "id": "2", "args": {"arg1": "value1"}},
+            ],
+        ),
+        # Boundary would end here, but ToolMessages are outside
+        ToolMessage(content="Call tool 1", tool_call_id="1", name="tool_1", id="3"),
+        ToolMessage(content="Call tool 2", tool_call_id="2", name="tool_2", id="4"),
+        # these will be kept in the final result
+        AIMessage(content="Response 1", id="5"),
+        HumanMessage(content="Message 2", id="6"),
+    ]
+
+    # Call the summarizer - boundary would naturally end at message 2 (AIMessage with tool_calls)
+    result = summarize_messages(
+        messages,
+        running_summary=None,
+        model=model,
+        token_counter=len,
+        max_tokens_before_summary=2,
+        max_tokens=6,
+        max_summary_tokens=1,
+    )
+
+    # Check that the corresponding ToolMessages are automatically included
+    assert len(result.messages) == 3
+    assert result.messages[0].type == "system"  # Summary
+    assert result.messages[-2:] == messages[-2:]
+    # Should include the AIMessage and both ToolMessages
+    assert result.running_summary.summarized_message_ids == set(
+        msg.id for msg in messages[:-2]
+    )
+
+
+def test_no_duplicate_tool_messages():
+    """Test that ToolMessages already in boundary are not duplicated."""
+    model = FakeChatModel(responses=[AIMessage(content="Summary without duplicates.")])
+
+    messages = [
+        # these will be summarized
+        HumanMessage(content="Message 1", id="1"),
+        AIMessage(
+            content="",
+            id="2",
+            tool_calls=[
+                {"name": "tool_1", "id": "1", "args": {"arg1": "value1"}},
+                {"name": "tool_2", "id": "2", "args": {"arg1": "value1"}},
+            ],
+        ),
+        ToolMessage(content="Call tool 1", tool_call_id="1", name="tool_1", id="3"),
+        # Boundary includes first ToolMessage, second ToolMessage is outside
+        ToolMessage(content="Call tool 2", tool_call_id="2", name="tool_2", id="4"),
+        # these will be kept in the final result
+        AIMessage(content="Response 1", id="5"),
+        HumanMessage(content="Message 2", id="6"),
+    ]
+
+    # Call the summarizer - boundary ends at message 3 (includes first ToolMessage)
+    result = summarize_messages(
+        messages,
+        running_summary=None,
+        model=model,
+        token_counter=len,
+        max_tokens_before_summary=3,
+        max_tokens=6,
+        max_summary_tokens=1,
+    )
+
+    # Verify that we get the correct messages without duplication
+    assert len(result.messages) == 3
+    assert result.messages[0].type == "system"  # Summary
+    assert result.messages[-2:] == messages[-2:]
+    
+    # Should include all tool-related messages exactly once
+    summarized_ids = result.running_summary.summarized_message_ids
+    assert summarized_ids == {"1", "2", "3", "4"}
+    
+    # Verify no duplicate IDs in the summarized set
+    assert len(summarized_ids) == len(set(summarized_ids))
+
+
 def test_missing_message_ids():
     messages = [
         HumanMessage(content="Message 1", id="1"),
