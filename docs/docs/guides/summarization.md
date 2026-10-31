@@ -81,6 +81,31 @@ the previously generated summary, if any.
 7. It's important to compile the graph with a checkpointer,
 otherwise the graph won't remember previous conversation turns.
 
+### Summarizing a Smaller Window
+
+By default, `max_tokens_before_summary` controls both when summarization starts and
+the minimum number of oldest message tokens included in the summary. To retain more
+recent messages when the threshold is reached, set `summary_window` separately:
+
+```python
+summarization_result = summarize_messages(
+    state["messages"],
+    running_summary=state.get("summary"),
+    token_counter=model.get_num_tokens_from_messages,
+    model=summarization_model,
+    max_tokens=256,
+    max_tokens_before_summary=256,
+    summary_window=128,
+    max_summary_tokens=128,
+)
+```
+
+This starts summarization when the unsummarized messages and any existing summary
+reach 256 tokens. It then summarizes an oldest-message prefix of at least 128
+tokens, leaving the newer messages available to the model. The prefix can grow
+when needed to fit the remaining messages and summary within `max_tokens`.
+`asummarize_messages` and `SummarizationNode` accept the same option.
+
 !!! Note "Using in UI"
 
     An important question is how to present messages to the users in the UI of your app. We recommend rendering the full, unmodified message history. You may choose to additionally render the summary and messages that are passed to the LLM. We also recommend using separate LangGraph state keys for the full message history (e.g., `"messages"`) and summarization results (e.g., `"summary"`). In `SummarizationNode`, summarization results are stored in a separate state key called `context` (see example below).

@@ -105,12 +105,15 @@ def _preprocess_messages(
     running_summary: RunningSummary | None,
     max_tokens: int,
     max_tokens_before_summary: int | None,
+    summary_window: int | None,
     max_summary_tokens: int,
     token_counter: TokenCounter,
 ) -> PreprocessedMessages:
     """Preprocess messages for summarization."""
     if max_summary_tokens >= max_tokens:
         raise ValueError("`max_summary_tokens` must be less than `max_tokens`.")
+    if summary_window is not None and summary_window <= 0:
+        raise ValueError("`summary_window` must be greater than 0.")
 
     # Set max_tokens_before_summary to max_tokens if not provided
     if max_tokens_before_summary is None:
@@ -141,12 +144,14 @@ def _preprocess_messages(
     # Get previously summarized messages, if any
     summarized_message_ids = set()
     total_summarized_messages = 0
+    existing_summary_tokens = 0
     if running_summary:
         summarized_message_ids = running_summary.summarized_message_ids
         # Adjust the summarization token budget to account for the previous summary
-        max_tokens_to_summarize -= token_counter(
+        existing_summary_tokens = token_counter(
             [SystemMessage(content=running_summary.summary)]
         )
+        max_tokens_to_summarize -= existing_summary_tokens
         # If we have an existing running summary, find how many messages have been
         # summarized so far based on the last summarized message ID.
         for i, message in enumerate(messages):
@@ -157,6 +162,13 @@ def _preprocess_messages(
     # We will use this to ensure that the total number of resulting tokens
     # will fit into max_tokens window.
     total_n_tokens = token_counter(messages[total_summarized_messages:])
+    trigger_reached = (
+        summary_window is None
+        or total_n_tokens + existing_summary_tokens >= max_tokens_before_summary
+    )
+    target_window = (
+        max_tokens_before_summary if summary_window is None else summary_window
+    )
 
     # Go through messages to count tokens and find cutoff point
     n_tokens = 0
@@ -184,7 +196,8 @@ def _preprocess_messages(
         # Check if we've reached max_tokens_to_summarize
         # and the remaining messages fit within the max_remaining_tokens budget
         if (
-            n_tokens >= max_tokens_before_summary
+            trigger_reached
+            and n_tokens >= target_window
             and total_n_tokens - n_tokens <= max_remaining_tokens
             and not should_summarize
         ):
@@ -341,6 +354,7 @@ def summarize_messages(
     model: LanguageModelLike,
     max_tokens: int,
     max_tokens_before_summary: int | None = None,
+    summary_window: int | None = None,
     max_summary_tokens: int = 256,
     token_counter: TokenCounter = count_tokens_approximately,
     initial_summary_prompt: ChatPromptTemplate = DEFAULT_INITIAL_SUMMARY_PROMPT,
@@ -349,9 +363,10 @@ def summarize_messages(
 ) -> SummarizationResult:
     """Summarize messages when they exceed a token limit and replace them with a summary message.
 
-    This function processes the messages from oldest to newest: once the cumulative number of message tokens
-    reaches `max_tokens_before_summary`, all messages within `max_tokens_before_summary` are summarized (excluding the system message, if any)
-    and replaced with a new summary message. The resulting list of messages is [summary_message] + remaining_messages.
+    This function processes messages from oldest to newest. Once the trigger threshold is reached,
+    it summarizes an oldest-message prefix sized by `summary_window` (or by
+    `max_tokens_before_summary` when no window is configured), excluding the system message.
+    The resulting list is [summary_message] + remaining_messages.
 
     Args:
         messages: The list of messages to process.
@@ -366,6 +381,9 @@ def summarize_messages(
             Defaults to the same value as `max_tokens` if not provided.
             This allows fitting more tokens into the summarization LLM, if needed.
 
+            When `summary_window` is set, this is the trigger threshold for the total
+            unsummarized messages and existing summary.
+
             !!! Note
 
                 If the last message within `max_tokens_before_summary` is an AI message with tool calls,
@@ -376,6 +394,11 @@ def summarize_messages(
                 If the number of tokens to be summarized is greater than max_tokens, only the last max_tokens amongst those
                 will be summarized. This is done to prevent exceeding the context window of the summarization LLM
                 (assumed to be capped at max_tokens).
+        summary_window: Minimum number of oldest, unsummarized message tokens to fold
+            into the next summary after the trigger threshold is reached. Defaults to
+            `None`, which preserves the existing behavior of using
+            `max_tokens_before_summary` as the window size. More messages may be included
+            when needed to keep the remaining context within `max_tokens`.
         max_summary_tokens: Maximum number of tokens to budget for the summary.
 
             !!! Note
@@ -447,6 +470,7 @@ def summarize_messages(
         running_summary=running_summary,
         max_tokens=max_tokens,
         max_tokens_before_summary=max_tokens_before_summary,
+        summary_window=summary_window,
         max_summary_tokens=max_summary_tokens,
         token_counter=token_counter,
     )
@@ -503,6 +527,7 @@ async def asummarize_messages(
     model: LanguageModelLike,
     max_tokens: int,
     max_tokens_before_summary: int | None = None,
+    summary_window: int | None = None,
     max_summary_tokens: int = 256,
     token_counter: TokenCounter = count_tokens_approximately,
     initial_summary_prompt: ChatPromptTemplate = DEFAULT_INITIAL_SUMMARY_PROMPT,
@@ -511,9 +536,10 @@ async def asummarize_messages(
 ) -> SummarizationResult:
     """Summarize messages asynchronously when they exceed a token limit and replace them with a summary message.
 
-    This function processes the messages from oldest to newest: once the cumulative number of message tokens
-    reaches `max_tokens_before_summary`, all messages within `max_tokens_before_summary` are summarized (excluding the system message, if any)
-    and replaced with a new summary message. The resulting list of messages is [summary_message] + remaining_messages.
+    This function processes messages from oldest to newest. Once the trigger threshold is reached,
+    it summarizes an oldest-message prefix sized by `summary_window` (or by
+    `max_tokens_before_summary` when no window is configured), excluding the system message.
+    The resulting list is [summary_message] + remaining_messages.
 
     Args:
         messages: The list of messages to process.
@@ -527,6 +553,9 @@ async def asummarize_messages(
             Defaults to the same value as `max_tokens` if not provided.
             This allows fitting more tokens into the summarization LLM, if needed.
 
+            When `summary_window` is set, this is the trigger threshold for the total
+            unsummarized messages and existing summary.
+
             !!! Note
 
                 If the last message within `max_tokens_before_summary` is an AI message with tool calls,
@@ -537,6 +566,11 @@ async def asummarize_messages(
                 If the number of tokens to be summarized is greater than max_tokens, only the last max_tokens amongst those
                 will be summarized. This is done to prevent exceeding the context window of the summarization LLM
                 (assumed to be capped at max_tokens).
+        summary_window: Minimum number of oldest, unsummarized message tokens to fold
+            into the next summary after the trigger threshold is reached. Defaults to
+            `None`, which preserves the existing behavior of using
+            `max_tokens_before_summary` as the window size. More messages may be included
+            when needed to keep the remaining context within `max_tokens`.
         max_summary_tokens: Maximum number of tokens to budget for the summary.
 
             !!! Note
@@ -608,6 +642,7 @@ async def asummarize_messages(
         running_summary=running_summary,
         max_tokens=max_tokens,
         max_tokens_before_summary=max_tokens_before_summary,
+        summary_window=summary_window,
         max_summary_tokens=max_summary_tokens,
         token_counter=token_counter,
     )
@@ -666,6 +701,7 @@ class SummarizationNode(RunnableCallable):
         model: LanguageModelLike,
         max_tokens: int,
         max_tokens_before_summary: int | None = None,
+        summary_window: int | None = None,
         max_summary_tokens: int = 256,
         token_counter: TokenCounter = count_tokens_approximately,
         initial_summary_prompt: ChatPromptTemplate = DEFAULT_INITIAL_SUMMARY_PROMPT,
@@ -677,9 +713,10 @@ class SummarizationNode(RunnableCallable):
     ) -> None:
         """A LangGraph node that summarizes messages when they exceed a token limit and replaces them with a summary message.
 
-        Processes the messages from oldest to newest: once the cumulative number of message tokens
-        reaches `max_tokens_before_summary`, all messages within `max_tokens_before_summary` are summarized (excluding the system message, if any)
-        and replaced with a new summary message. The resulting list of messages is [summary_message] + remaining_messages.
+        Processes messages from oldest to newest. Once the trigger threshold is reached,
+        it summarizes an oldest-message prefix sized by `summary_window` (or by
+        `max_tokens_before_summary` when no window is configured), excluding the system message.
+        The resulting list is [summary_message] + remaining_messages.
 
         Args:
             model: The language model to use for generating summaries.
@@ -687,6 +724,9 @@ class SummarizationNode(RunnableCallable):
             max_tokens_before_summary: Maximum number of tokens to accumulate before triggering summarization.
                 Defaults to the same value as `max_tokens` if not provided.
                 This allows fitting more tokens into the summarization LLM, if needed.
+
+                When `summary_window` is set, this is the trigger threshold for the
+                total unsummarized messages and existing summary.
 
                 !!! Note
 
@@ -698,6 +738,10 @@ class SummarizationNode(RunnableCallable):
                     If the number of tokens to be summarized is greater than max_tokens, only the last max_tokens amongst those
                     will be summarized. This is done to prevent exceeding the context window of the summarization LLM
                     (assumed to be capped at max_tokens).
+            summary_window: Minimum number of oldest, unsummarized message tokens to
+                fold into the next summary after the trigger threshold is reached.
+                Defaults to `None`, preserving the existing window behavior. More
+                messages may be included to fit the remaining context within `max_tokens`.
             max_summary_tokens: Maximum number of tokens to budget for the summary.
 
                 !!! Note
@@ -784,6 +828,7 @@ class SummarizationNode(RunnableCallable):
         self.model = model
         self.max_tokens = max_tokens
         self.max_tokens_before_summary = max_tokens_before_summary
+        self.summary_window = summary_window
         self.max_summary_tokens = max_summary_tokens
         self.token_counter = token_counter
         self.initial_summary_prompt = initial_summary_prompt
@@ -835,6 +880,7 @@ class SummarizationNode(RunnableCallable):
             model=self.model,
             max_tokens=self.max_tokens,
             max_tokens_before_summary=self.max_tokens_before_summary,
+            summary_window=self.summary_window,
             max_summary_tokens=self.max_summary_tokens,
             token_counter=self.token_counter,
             initial_summary_prompt=self.initial_summary_prompt,
@@ -851,6 +897,7 @@ class SummarizationNode(RunnableCallable):
             model=self.model,
             max_tokens=self.max_tokens,
             max_tokens_before_summary=self.max_tokens_before_summary,
+            summary_window=self.summary_window,
             max_summary_tokens=self.max_summary_tokens,
             token_counter=self.token_counter,
             initial_summary_prompt=self.initial_summary_prompt,
