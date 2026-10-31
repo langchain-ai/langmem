@@ -1030,7 +1030,8 @@ class MemoryStoreManager(Runnable[MemoryStoreManagerInput, list[dict]]):
         else:
             # Search over "query_limit" timespans starting from the most recent
             queries = utils.get_dialated_windows(
-                input["messages"], self.query_limit // 4
+                input["messages"],
+                max(1, self.query_limit // 4) if self.query_limit > 0 else 0,
             )
             search_results_lists = await asyncio.gather(
                 *[store.asearch(namespace, query=query) for query in queries]
@@ -1165,7 +1166,8 @@ class MemoryStoreManager(Runnable[MemoryStoreManagerInput, list[dict]]):
             else:
                 # Search over "query_limit" timespans starting from the most recent
                 queries = utils.get_dialated_windows(
-                    input["messages"], self.query_limit // 4
+                    input["messages"],
+                    max(1, self.query_limit // 4) if self.query_limit > 0 else 0,
                 )
                 search_results_lists = [
                     store.search(namespace, query=query) for query in queries
