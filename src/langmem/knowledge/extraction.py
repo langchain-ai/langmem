@@ -1170,17 +1170,9 @@ class MemoryStoreManager(Runnable[MemoryStoreManagerInput, list[dict]]):
                 search_results_lists = [
                     store.search(namespace, query=query) for query in queries
                 ]
-                search_results_futs = [
-                    executor.submit(
-                        store.search,
-                        namespace,
-                        query=query,
-                        limit=self.query_limit,
-                    )
-                    for query in queries
-                ]
 
-        search_results_lists = [fut.result() for fut in search_results_futs]
+        if self.query_gen:
+            search_results_lists = [fut.result() for fut in search_results_futs]
         store_map = self._sort_results(search_results_lists, self.query_limit)
         if not store_map and self.default_factory is not None:
             config = ensure_config(config)
