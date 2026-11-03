@@ -1272,10 +1272,14 @@ class MemoryStoreManager(Runnable[MemoryStoreManagerInput, list[dict]]):
                 final_deletes.append((art.namespace, art.key))
 
         with get_executor_for_config(config) as executor:
-            for put in final_puts:
-                executor.submit(store.put, **put)
-            for ns, key in final_deletes:
-                executor.submit(store.delete, ns, key)
+            futures = [executor.submit(store.put, **put) for put in final_puts]
+            futures += [
+                executor.submit(store.delete, ns, key) for ns, key in final_deletes
+            ]
+            # Propagate any store write/delete error instead of silently
+            # returning success (matches `ainvoke`, which gathers and raises).
+            for fut in futures:
+                fut.result()
 
         return final_puts
 
