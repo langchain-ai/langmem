@@ -995,7 +995,13 @@ class MemoryStoreManager(Runnable[MemoryStoreManagerInput, list[dict]]):
         search_results = {}
         for results in search_results_lists:
             for item in results:
-                search_results[(tuple(item.namespace), item.key)] = item
+                key = (tuple(item.namespace), item.key)
+                previous = search_results.get(key)
+                if previous is None or (
+                    (item.score if item.score is not None else float("-inf"))
+                    > (previous.score if previous.score is not None else float("-inf"))
+                ):
+                    search_results[key] = item
         sorted_results = sorted(
             search_results.values(),
             key=lambda it: it.score if it.score is not None else float("-inf"),
