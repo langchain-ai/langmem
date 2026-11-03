@@ -52,6 +52,10 @@ docs = [
     "nbconvert>=7.16.6",
 ]
 
+# Patched documentation dependencies require Python 3.11; runtime stays on 3.10+.
+[tool.uv.dependency-groups]
+docs = { requires-python = ">=3.11" }
+
 [tool.uv.workspace]
 members = ["evals/gen"]
 
