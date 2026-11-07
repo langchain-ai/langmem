@@ -7,8 +7,9 @@ from langchain_core.messages import (
 )
 from langchain_core.messages.utils import count_tokens_approximately
 
-from langmem.short_term.summarization import summarize_messages, SummarizationNode
+from langmem.short_term.summarization import SummarizationNode, summarize_messages
 from tests.short_term.utils import FakeChatModel
+
 
 def test_empty_input():
     model = FakeChatModel(responses=[])
