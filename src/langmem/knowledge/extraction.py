@@ -1033,7 +1033,10 @@ class MemoryStoreManager(Runnable[MemoryStoreManagerInput, list[dict]]):
                 input["messages"], self.query_limit // 4
             )
             search_results_lists = await asyncio.gather(
-                *[store.asearch(namespace, query=query) for query in queries]
+                *[
+                    store.asearch(namespace, query=query, limit=self.query_limit)
+                    for query in queries
+                ]
             )
 
         store_map = self._sort_results(search_results_lists, self.query_limit)
