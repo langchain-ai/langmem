@@ -1,5 +1,5 @@
 import warnings
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable, cast
 
 from langchain_core.language_models import LanguageModelLike
@@ -60,10 +60,42 @@ class RunningSummary:
     """Latest summary of the messages, updated every time the summarization is performed."""
 
     summarized_message_ids: set[str]
-    """The IDs of all of the messages that have been previously summarized."""
+    """The IDs of all of the messages that have been previously summarized.
+
+    A message is listed here when it was removed from the working context by
+    summarization, including messages that pre-summary trimming dropped before
+    the summarization model call (see `dropped_before_summary_message_ids`).
+    """
 
     last_summarized_message_id: str | None
     """The ID of the last message that was summarized."""
+
+    dropped_before_summary_message_ids: set[str] = field(default_factory=set)
+    """The IDs of messages that were removed from the working context without
+    reaching the summarization model.
+
+    Summarization trims the oldest messages from the window when the window is
+    bigger than `max_tokens` (see `max_tokens_to_summarize`). Those messages are
+    gone from the returned context but were never sent to the model, so they are
+    not covered by the summary. They are also not re-summarized on a later call
+    with the same history, because `last_summarized_message_id` is already past
+    them.
+    """
+
+    partially_trimmed_before_summary_message_ids: set[str] = field(default_factory=set)
+    """The IDs of messages that reached the summarization model with only part
+    of their content.
+
+    Pre-summary trimming can keep the tail of a long message instead of dropping
+    it whole (see `dropped_before_summary_message_ids`). The message ID survives
+    the trim, so such a message is not reported as dropped even though the model
+    never saw its full content. This set records those IDs so callers can tell a
+    partially trimmed message apart from one whose full content was summarized.
+
+    Both fields track losses observed during pre-summary trimming only. When a
+    summary saved before these fields existed is restored, tracking starts with
+    the next summarization.
+    """
 
 
 @dataclass
@@ -258,21 +290,23 @@ def _adjust_messages_before_summarization(
 
 def _prepare_input_to_summarization_model(
     *,
-    preprocessed_messages: PreprocessedMessages,
+    messages_to_summarize: list[AnyMessage],
     running_summary: RunningSummary | None,
     existing_summary_prompt: ChatPromptTemplate,
     initial_summary_prompt: ChatPromptTemplate,
-    token_counter: TokenCounter,
 ) -> list[AnyMessage]:
-    adjusted_messages_to_summarize = _adjust_messages_before_summarization(
-        preprocessed_messages, token_counter
-    )
+    """Build the messages passed to the summarization model.
+
+    `messages_to_summarize` is the already-adjusted list (see
+    `_adjust_messages_before_summarization`), so the caller can mark exactly the
+    messages that were really sent to the model.
+    """
     if running_summary:
         summary_messages = cast(
             ChatPromptValue,
             existing_summary_prompt.invoke(
                 {
-                    "messages": adjusted_messages_to_summarize,
+                    "messages": messages_to_summarize,
                     "existing_summary": running_summary.summary,
                 }
             ),
@@ -280,7 +314,7 @@ def _prepare_input_to_summarization_model(
     else:
         summary_messages = cast(
             ChatPromptValue,
-            initial_summary_prompt.invoke({"messages": adjusted_messages_to_summarize}),
+            initial_summary_prompt.invoke({"messages": messages_to_summarize}),
         )
 
     return summary_messages.messages
@@ -395,8 +429,10 @@ def summarize_messages(
             - messages: list of updated messages ready to be input to the LLM
             - running_summary: RunningSummary object
                 - summary: text of the latest summary
-                - summarized_message_ids: set of message IDs that were previously summarized
+                - summarized_message_ids: set of message IDs that summarization removed from the context
                 - last_summarized_message_id: ID of the last message that was summarized
+                - dropped_before_summary_message_ids: IDs of removed messages that never reached the summarization model
+                - partially_trimmed_before_summary_message_ids: IDs of messages that reached the summarization model with only part of their content
 
     Example:
         ```pycon
@@ -468,23 +504,55 @@ def summarize_messages(
         set(running_summary.summarized_message_ids) if running_summary else set()
     )
     if preprocessed_messages.messages_to_summarize:
+        adjusted_messages_to_summarize = _adjust_messages_before_summarization(
+            preprocessed_messages, token_counter
+        )
         summary_messages = _prepare_input_to_summarization_model(
-            preprocessed_messages=preprocessed_messages,
+            messages_to_summarize=adjusted_messages_to_summarize,
             running_summary=running_summary,
             existing_summary_prompt=existing_summary_prompt,
             initial_summary_prompt=initial_summary_prompt,
-            token_counter=token_counter,
         )
         summary_response = model.invoke(summary_messages)
         summarized_message_ids = summarized_message_ids | set(
             message.id for message in preprocessed_messages.messages_to_summarize
         )
+        # Surface the messages that pre-summary trimming dropped: they left the
+        # working context but never reached the summarization model, so the summary
+        # does not cover them (#207).
+        dropped_before_summary_message_ids = (
+            set(running_summary.dropped_before_summary_message_ids)
+            if running_summary
+            else set()
+        ) | (
+            {message.id for message in preprocessed_messages.messages_to_summarize}
+            - {message.id for message in adjusted_messages_to_summarize}
+        )
+        # Surface the messages that pre-summary trimming only partially kept:
+        # their IDs survive the trim, but the model saw less than their full
+        # content (#207).
+        content_before_trim = {
+            message.id: message.content
+            for message in preprocessed_messages.messages_to_summarize
+        }
+        partially_trimmed_before_summary_message_ids = (
+            set(running_summary.partially_trimmed_before_summary_message_ids)
+            if running_summary
+            else set()
+        ) | {
+            message.id
+            for message in adjusted_messages_to_summarize
+            if message.id in content_before_trim
+            and message.content != content_before_trim[message.id]
+        }
         running_summary = RunningSummary(
             summary=summary_response.content,
             summarized_message_ids=summarized_message_ids,
             last_summarized_message_id=preprocessed_messages.messages_to_summarize[
                 -1
             ].id,
+            dropped_before_summary_message_ids=dropped_before_summary_message_ids,
+            partially_trimmed_before_summary_message_ids=partially_trimmed_before_summary_message_ids,
         )
 
     return _prepare_summarization_result(
@@ -556,8 +624,10 @@ async def asummarize_messages(
             - messages: list of updated messages ready to be input to the LLM
             - running_summary: RunningSummary object
                 - summary: text of the latest summary
-                - summarized_message_ids: set of message IDs that were previously summarized
+                - summarized_message_ids: set of message IDs that summarization removed from the context
                 - last_summarized_message_id: ID of the last message that was summarized
+                - dropped_before_summary_message_ids: IDs of removed messages that never reached the summarization model
+                - partially_trimmed_before_summary_message_ids: IDs of messages that reached the summarization model with only part of their content
 
     Example:
         ```pycon
@@ -629,23 +699,55 @@ async def asummarize_messages(
         set(running_summary.summarized_message_ids) if running_summary else set()
     )
     if preprocessed_messages.messages_to_summarize:
+        adjusted_messages_to_summarize = _adjust_messages_before_summarization(
+            preprocessed_messages, token_counter
+        )
         summary_messages = _prepare_input_to_summarization_model(
-            preprocessed_messages=preprocessed_messages,
+            messages_to_summarize=adjusted_messages_to_summarize,
             running_summary=running_summary,
             existing_summary_prompt=existing_summary_prompt,
             initial_summary_prompt=initial_summary_prompt,
-            token_counter=token_counter,
         )
         summary_response = await model.ainvoke(summary_messages)
         summarized_message_ids = summarized_message_ids | set(
             message.id for message in preprocessed_messages.messages_to_summarize
         )
+        # Surface the messages that pre-summary trimming dropped: they left the
+        # working context but never reached the summarization model, so the summary
+        # does not cover them (#207).
+        dropped_before_summary_message_ids = (
+            set(running_summary.dropped_before_summary_message_ids)
+            if running_summary
+            else set()
+        ) | (
+            {message.id for message in preprocessed_messages.messages_to_summarize}
+            - {message.id for message in adjusted_messages_to_summarize}
+        )
+        # Surface the messages that pre-summary trimming only partially kept:
+        # their IDs survive the trim, but the model saw less than their full
+        # content (#207).
+        content_before_trim = {
+            message.id: message.content
+            for message in preprocessed_messages.messages_to_summarize
+        }
+        partially_trimmed_before_summary_message_ids = (
+            set(running_summary.partially_trimmed_before_summary_message_ids)
+            if running_summary
+            else set()
+        ) | {
+            message.id
+            for message in adjusted_messages_to_summarize
+            if message.id in content_before_trim
+            and message.content != content_before_trim[message.id]
+        }
         running_summary = RunningSummary(
             summary=summary_response.content,
             summarized_message_ids=summarized_message_ids,
             last_summarized_message_id=preprocessed_messages.messages_to_summarize[
                 -1
             ].id,
+            dropped_before_summary_message_ids=dropped_before_summary_message_ids,
+            partially_trimmed_before_summary_message_ids=partially_trimmed_before_summary_message_ids,
         )
 
     return _prepare_summarization_result(
