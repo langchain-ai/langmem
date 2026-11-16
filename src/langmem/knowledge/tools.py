@@ -294,6 +294,9 @@ def create_manage_memory_tool(
             await store.adelete(namespace, key=str(id))
             return f"Deleted memory {id}"
 
+        if action == "update" and await store.aget(namespace, key=str(id)) is None:
+            raise ValueError(_memory_not_found_message(id))
+
         id = id or uuid.uuid4()
         await store.aput(
             namespace,
@@ -327,6 +330,9 @@ def create_manage_memory_tool(
         if action == "delete":
             store.delete(namespace, key=str(id))
             return f"Deleted memory {id}"
+
+        if action == "update" and store.get(namespace, key=str(id)) is None:
+            raise ValueError(_memory_not_found_message(id))
 
         id = id or uuid.uuid4()
         store.put(
@@ -495,6 +501,13 @@ def _get_store(initial_store: BaseStore | None = None) -> BaseStore:
         return store
     except RuntimeError as e:
         raise errors.ConfigurationError("Could not get store") from e
+
+
+def _memory_not_found_message(memory_id: typing.Any) -> str:
+    return (
+        f"No MEMORY found with id {memory_id}. It may have been deleted. "
+        "Search for the memory again before updating it."
+    )
 
 
 def _ensure_json_serializable(content: typing.Any) -> typing.Any:
