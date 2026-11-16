@@ -57,6 +57,31 @@ agent = create_react_agent(
 )
 ```
 
+Alternatively, use [OrcaRouter](https://www.orcarouter.ai) as your model. OrcaRouter is an OpenAI-compatible model routing gateway that exposes 150+ models from OpenAI, Anthropic, Google, DeepSeek, Qwen, MiniMax and xAI behind a single endpoint and API key (`sk-orca-...`). Pass a `ChatOpenAI` instance pointed at its OpenAI-compatible endpoint:
+
+```python
+from langchain_openai import ChatOpenAI
+
+llm = ChatOpenAI(
+    model="openai/gpt-4o-mini",
+    base_url="https://api.orcarouter.ai/v1",
+    api_key="sk-orca-...",  # or set ORCAROUTER_API_KEY
+)
+agent = create_react_agent(
+    llm,
+    tools=[
+        create_manage_memory_tool(namespace=("memories",)),
+        create_search_memory_tool(namespace=("memories",)),
+    ],
+    store=store,
+)
+```
+
+> [!NOTE]
+> OrcaRouter routes by the namespaced model id, so keep the `openai/` prefix in the `model`
+> argument (e.g. `openai/gpt-4o-mini`). If you use `init_chat_model("openai:openai/gpt-4o-mini", ...)`,
+> the extra `openai:` prefix is required because LangChain strips one provider prefix.
+
 1. The memory tools work in any LangGraph app. Here we use [`create_react_agent`](https://langchain-ai.github.io/langgraph/reference/prebuilt/#langgraph.prebuilt.create_react_agent) to run an LLM with tools, but you can add these tools to your existing agents or build [custom memory systems](concepts/conceptual_guide.md#functional-core) without agents.
 
 2. [`InMemoryStore`](https://langchain-ai.github.io/langgraph/reference/store/#langgraph.store.memory.InMemoryStore) keeps memories in process memory—they'll be lost on restart. For production, use the [AsyncPostgresStore](https://langchain-ai.github.io/langgraph/reference/store/#langgraph.store.postgres.AsyncPostgresStore) or a similar DB-backed store to persist memories across server restarts.
