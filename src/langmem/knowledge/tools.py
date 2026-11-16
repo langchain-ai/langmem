@@ -293,6 +293,11 @@ def create_manage_memory_tool(
         if action == "delete":
             await store.adelete(namespace, key=str(id))
             return f"Deleted memory {id}"
+        # A plain put would re-create a memory that was deleted after the id was read.
+        if action == "update" and await store.aget(namespace, key=str(id)) is None:
+            raise ValueError(
+                f"Memory {id} does not exist. It may have been deleted; search memories again before updating."
+            )
 
         id = id or uuid.uuid4()
         await store.aput(
@@ -327,6 +332,11 @@ def create_manage_memory_tool(
         if action == "delete":
             store.delete(namespace, key=str(id))
             return f"Deleted memory {id}"
+        # A plain put would re-create a memory that was deleted after the id was read.
+        if action == "update" and store.get(namespace, key=str(id)) is None:
+            raise ValueError(
+                f"Memory {id} does not exist. It may have been deleted; search memories again before updating."
+            )
 
         id = id or uuid.uuid4()
         store.put(
