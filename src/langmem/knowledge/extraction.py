@@ -1704,7 +1704,7 @@ def create_memory_store_manager(
         enable_inserts (bool, optional): Whether to allow creating new memory entries.
             When False, the manager will only update existing memories. Defaults to True.
         enable_deletes (bool, optional): Whether to allow deleting existing memories
-            that are outdated or contradicted by new information. Defaults to True.
+            that are outdated or contradicted by new information. Defaults to False.
         query_model (Optional[Union[str, BaseChatModel]], optional): Optional separate
             model for memory search queries. Using a smaller, faster model here can
             improve performance. If None, uses the primary model. Defaults to None.
