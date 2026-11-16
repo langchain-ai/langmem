@@ -263,6 +263,9 @@ class LocalReflectionExecutor:
         self._store = store
         self._task_queue = queue.PriorityQueue()
         self._pending_tasks: dict[str, PendingTask] = {}
+        self._queued_tasks: list[PendingTask] = []
+        self._queued_tasks_lock = threading.Lock()
+        self._cancelling_queued_tasks = False
         self._worker_running = True
         self._worker = threading.Thread(
             target=functools.partial(_process_queue, self), daemon=False
@@ -325,6 +328,7 @@ class LocalReflectionExecutor:
         )
         if thread_id:
             self._pending_tasks[thread_id] = task
+        self._mark_queued(task)
         self._task_queue.put((time.time() + after_seconds, task))
         return future
 
@@ -369,14 +373,51 @@ class LocalReflectionExecutor:
     def shutdown(self, wait=True, *, cancel_futures=False):
         self._worker_running = False
         if cancel_futures:
-            for task in list(self._pending_tasks.values()):
-                task.cancel_event.set()
-                task.future.cancel()
+            self._cancel_queued_tasks()
         if wait:
             for task in list(self._pending_tasks.values()):
                 if not task.future.cancelled():
                     task.future.result()
             self._worker.join()
+
+    def _mark_queued(self, task: "PendingTask") -> None:
+        """Record a task as waiting in the queue."""
+        with self._queued_tasks_lock:
+            self._queued_tasks.append(task)
+
+    def _mark_started(self, task: "PendingTask") -> None:
+        """Drop a task from the queued set once the worker takes it off the queue."""
+        with self._queued_tasks_lock:
+            self._queued_tasks = [
+                queued for queued in self._queued_tasks if queued is not task
+            ]
+
+    def _requeue(self, task: "PendingTask") -> bool:
+        """Put a delayed task back on the queue unless queued work is being cancelled."""
+        with self._queued_tasks_lock:
+            if self._cancelling_queued_tasks:
+                task.cancel_event.set()
+                task.future.cancel()
+                return False
+            self._queued_tasks.append(task)
+            return True
+
+    def _cancel_queued_tasks(self) -> None:
+        """Cancel every task that is still waiting in the queue.
+
+        Tasks the worker already picked up are left to finish, and a delayed task that is
+        between the queue and its run time is cancelled by `_requeue`.
+        """
+        with self._queued_tasks_lock:
+            queued_tasks, self._queued_tasks = self._queued_tasks, []
+            self._cancelling_queued_tasks = True
+        for task in queued_tasks:
+            task.cancel_event.set()
+            task.future.cancel()
+
+    def _is_cancelling_queued_tasks(self) -> bool:
+        with self._queued_tasks_lock:
+            return self._cancelling_queued_tasks
 
     def __enter__(self):
         return self
@@ -402,6 +443,7 @@ def _process_queue(self: "LocalReflectionExecutor"):
     while self._worker_running:
         try:
             execute_at, task = self._task_queue.get(timeout=1)
+            self._mark_started(task)
             if task.future.cancelled():
                 self._pending_tasks.pop(task.thread_id, None)
                 continue
@@ -409,7 +451,8 @@ def _process_queue(self: "LocalReflectionExecutor"):
             if execute_at > now:
                 time.sleep(min(execute_at - now, 1))
                 if execute_at > time.time():
-                    self._task_queue.put((execute_at, task))
+                    if self._requeue(task):
+                        self._task_queue.put((execute_at, task))
                     continue
             if task.cancel_event.is_set():
                 self._pending_tasks.pop(task.thread_id, None)
@@ -451,6 +494,14 @@ def _process_queue(self: "LocalReflectionExecutor"):
     # Drain the queue
     while not self._task_queue.empty():
         execute_at, task = self._task_queue.get()
+        self._mark_started(task)
+        if (
+            task.future.cancelled()
+            or task.cancel_event.is_set()
+            or self._is_cancelling_queued_tasks()
+        ):
+            self._pending_tasks.pop(task.thread_id, None)
+            continue
         try:
             config = task.config or {}
             configurable = config.setdefault(CONF, {})
