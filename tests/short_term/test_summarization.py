@@ -3,6 +3,7 @@ from langchain_core.messages import (
     AIMessage,
     HumanMessage,
     SystemMessage,
+    ToolCall,
     ToolMessage,
 )
 from langchain_core.messages.utils import count_tokens_approximately
@@ -571,6 +572,46 @@ def test_last_ai_with_tool_calls():
     assert result.messages[-2:] == messages[-2:]
     assert result.running_summary.summarized_message_ids == set(
         msg.id for msg in messages[:-2]
+    )
+
+
+def test_multiple_parallel_tool_calls():
+    model = FakeChatModel(responses=[AIMessage(content="Summary for tool call messages.")])
+    model.invoke_calls = []
+
+    messages = [
+        HumanMessage(content="Generate two long random strings", id="id1"),
+        AIMessage(
+            content="Utilizing `rand_string` tool for this",
+            id="id2",
+            tool_calls=[ToolCall(name="rand_string", args={}, id=str(id)) for id in [1, 2]]
+        ),
+        ToolMessage(content="a", tool_call_id="1", id="id3"),
+        ToolMessage(content="b", tool_call_id="2", id="id4"),
+        AIMessage(content="Generated the two random strings.", id="id5"),
+        HumanMessage(content="Can you explain the generation algorithm?", id="id6"),
+    ]
+
+    summarization_node = SummarizationNode(
+        model=model,
+        token_counter=len,
+        max_tokens=4,
+        max_tokens_before_summary=3,
+        max_summary_tokens=1,
+        output_messages_key="summarized_messages",
+    )
+
+    result = summarization_node.invoke({"messages": messages})
+
+    # ensure the summarization model saw both tool messages tied to the tool calls
+    assert len(model.invoke_calls) == 1
+
+    # Ensure that all tool calls and their corresponding tool messages were summarized
+    running_summary = result["context"]["running_summary"]
+    assert running_summary is not None
+    assert running_summary.last_summarized_message_id == "id4"
+    assert running_summary.summarized_message_ids.issuperset(
+        {"id1", "id2", "id3", "id4"}
     )
 
 
