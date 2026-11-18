@@ -891,3 +891,97 @@ def test_summarization_node_same_key():
     assert updated_summary_value.summary == "Updated summary including new messages."
     # Verify all messages except the last 3 were summarized
     assert len(updated_summary_value.summarized_message_ids) == 12
+
+def test_summary_update_behavior_with_short_subsequent_messages():
+    """Test that documents the behavior described in issue #118.
+
+    When using summarize_messages in a tool-loop scenario, subsequent passes
+    may not trigger re-summarization if the new messages since the last summary
+    don't reach the max_tokens_before_summary threshold.
+    """
+    model = FakeChatModel(
+        responses=[
+            AIMessage(content="Summary of initial conversation about weather queries."),
+        ]
+    )
+
+    # First batch: enough messages to trigger summarization
+    messages1 = [
+        HumanMessage(content="What is the weather in NYC?", id="1"),
+        AIMessage(
+            content="Let me check that for you.",
+            id="2",
+            tool_calls=[
+                {"id": "call_1", "name": "search", "args": {"query": "weather NYC"}}
+            ],
+        ),
+        ToolMessage(content="Sunny, 75F", tool_call_id="call_1", id="3"),
+        AIMessage(content="The weather in NYC is sunny and 75F.", id="4"),
+        HumanMessage(content="What about Boston?", id="5"),
+        AIMessage(
+            content="Checking Boston weather.",
+            id="6",
+            tool_calls=[
+                {"id": "call_2", "name": "search", "args": {"query": "weather Boston"}}
+            ],
+        ),
+        ToolMessage(content="Rainy, 60F", tool_call_id="call_2", id="7"),
+        AIMessage(content="Boston has rain and 60F.", id="8"),
+    ]
+
+    max_tokens = 6
+    max_summary_tokens = 1
+
+    # First summarization — should trigger since messages exceed threshold
+    result1 = summarize_messages(
+        messages1,
+        running_summary=None,
+        model=model,
+        token_counter=len,
+        max_tokens=max_tokens,
+        max_summary_tokens=max_summary_tokens,
+    )
+
+    assert result1.running_summary is not None
+    assert result1.running_summary.summary == "Summary of initial conversation about weather queries."
+    first_summary = result1.running_summary
+
+    # Now simulate a tool-loop iteration: add only 2 short messages
+    # (a tool call + response). These are too short to reach the threshold again.
+    messages2 = messages1 + [
+        HumanMessage(content="And SF?", id="9"),
+        AIMessage(
+            content="Checking.",
+            id="10",
+            tool_calls=[
+                {"id": "call_3", "name": "search", "args": {"query": "weather SF"}}
+            ],
+        ),
+        ToolMessage(content="Foggy, 55F", tool_call_id="call_3", id="11"),
+    ]
+
+    # Second summarization with the previous running_summary
+    result2 = summarize_messages(
+        messages2,
+        running_summary=first_summary,
+        model=model,
+        token_counter=len,
+        max_tokens=max_tokens,
+        max_summary_tokens=max_summary_tokens,
+    )
+
+    # Document the current behavior: since the new messages (ids 9-11) are short
+    # and don't reach max_tokens_before_summary, no re-summarization is triggered.
+    # The model should NOT have been called again.
+    assert len(model.invoke_calls) == 1, (
+        "Expected model to be called only once (initial summarization). "
+        "The short subsequent messages did not trigger re-summarization."
+    )
+
+    # The running summary from the second call should still be the same
+    # as the first one (it was not updated)
+    if result2.running_summary is not None:
+        assert result2.running_summary.summary == first_summary.summary, (
+            "Running summary should remain unchanged when subsequent messages "
+            "don't reach the max_tokens_before_summary threshold."
+        )
