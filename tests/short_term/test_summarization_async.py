@@ -7,7 +7,7 @@ from langchain_core.messages import (
 )
 from langchain_core.messages.utils import count_tokens_approximately
 
-from langmem.short_term.summarization import asummarize_messages, SummarizationNode
+from langmem.short_term.summarization import SummarizationNode, asummarize_messages
 from tests.short_term.utils import FakeChatModel
 
 pytestmark = pytest.mark.anyio
