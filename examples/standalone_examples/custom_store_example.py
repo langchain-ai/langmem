@@ -10,6 +10,7 @@ The example demonstrates that the memory manager can work independently of LangG
 context store, making it usable in standalone applications.
 """
 
+from langchain_openai import ChatOpenAI
 from langgraph.store.memory import InMemoryStore
 from pydantic import BaseModel
 
@@ -40,7 +41,9 @@ async def run_example():
 
     # Initialize memory manager with custom store
     manager = create_memory_store_manager(
-        "openai:gpt-4o-mini",
+        ChatOpenAI(
+            model="gpt-6-luna", reasoning_effort="none", use_responses_api=False
+        ),
         schemas=[PreferenceMemory],
         namespace=("project", "{langgraph_user_id}"),
         store=store  # Pass our custom store here
