@@ -242,7 +242,8 @@ def get_prompt_extraction_schema(
         @classmethod
         def validate_input_variables(cls, data: typing.Any) -> typing.Any:
             assert "improved_prompt" in data
-            data["improved_prompt"] = pipeline(data["improved_prompt"])
+            if data["improved_prompt"] is not None:
+                data["improved_prompt"] = pipeline(data["improved_prompt"])
             return data
 
     return OptimizedPromptOutput
